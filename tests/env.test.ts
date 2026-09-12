@@ -41,9 +41,26 @@ describe('env assertion', () => {
     ).not.toThrow();
   });
 
-  it('requires nothing at Stage 1 — the mechanism ships before the variables do', () => {
+  it('requires the two public Supabase variables from Stage 2', () => {
+    const names = requiredVars('client').map((v) => v.name);
+    expect(names).toContain('NEXT_PUBLIC_SUPABASE_URL');
+    expect(names).toContain('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY');
+  });
+
+  it('requires no SERVER variable yet — nothing in Stage 2 needs BYPASSRLS', () => {
+    // The walking skeleton runs entirely as the signed-in user, under RLS. The secret key
+    // stays unrequired, and therefore unset, until something genuinely needs to act as
+    // no one. See docs/SECRETS.md.
     expect(requiredVars('server')).toHaveLength(0);
-    expect(requiredVars('client')).toHaveLength(0);
+  });
+
+  it('a variable is inert before its stage and required from it', () => {
+    const url = ENV_REGISTRY.find((v) => v.name === 'NEXT_PUBLIC_SUPABASE_URL');
+    expect(url?.requiredFrom).toBe(2);
+    expect(requiredVars('client', 1).map((v) => v.name)).not.toContain(
+      'NEXT_PUBLIC_SUPABASE_URL',
+    );
+    expect(requiredVars('client', 2).map((v) => v.name)).toContain('NEXT_PUBLIC_SUPABASE_URL');
   });
 
   it('turns a variable on at the stage it is declared for', () => {

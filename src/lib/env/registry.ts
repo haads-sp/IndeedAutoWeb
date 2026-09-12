@@ -26,13 +26,13 @@ export const ENV_REGISTRY: readonly EnvVar[] = [
   {
     name: 'NEXT_PUBLIC_SUPABASE_URL',
     scope: 'client',
-    requiredFrom: null,
+    requiredFrom: 2,
     description: 'Supabase project URL.',
   },
   {
     name: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
     scope: 'client',
-    requiredFrom: null,
+    requiredFrom: 2,
     description: 'Supabase publishable key; RLS still gates every query.',
   },
   {
@@ -74,7 +74,7 @@ export const ENV_REGISTRY: readonly EnvVar[] = [
 ];
 
 /** The stage this checkout currently implements. Bumped as each stage lands. */
-export const CURRENT_STAGE = 1;
+export const CURRENT_STAGE = 2;
 
 /** Variables in `scope` that must be present at `stage`. */
 export function requiredVars(scope: Scope, stage: number = CURRENT_STAGE): readonly EnvVar[] {

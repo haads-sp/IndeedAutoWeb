@@ -23,7 +23,7 @@ import { join, relative, resolve, extname, basename, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /** Directories scanned when they exist. */
-const SCAN_DIRS = ['src', 'scripts', 'public', '.github', 'tests', '.next'];
+const SCAN_DIRS = ['src', 'scripts', 'public', '.github', 'tests', 'supabase', '.next'];
 
 /** Root-level files scanned when they exist. */
 const SCAN_ROOT_FILES = [
