@@ -9,6 +9,9 @@ name: E2E
 on:
   push:
   pull_request:
+  # Re-runnable without a commit: these specs depend on external state (the preview
+  # Supabase project and its E2E user), so a failure is not always a code change.
+  workflow_dispatch:
 
 permissions:
   contents: read
