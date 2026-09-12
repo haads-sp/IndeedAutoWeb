@@ -11,6 +11,8 @@ on belief is the failure mode this table exists to prevent (prohibition P7).
 |---|---|---|---|---|---|
 | 1 | 2026-09-12 | Every git-triggered Vercel deploy silently failed. `alsayeed.ca` stayed frozen on Stage 2 code — `/ping` served fine, `/signup` returned 404 — while CI was green and `git push` reported success. Surfaced only by a Vercel email: "haadlit.co@gmail.com attempted to deploy a commit … but they're not a member of the team." | `haadlit.co@gmail.com` was not a verified email on the GitHub account, so GitHub could not attribute the commits to a user. `gh api repos/HaadLIT/IndeedAutoWeb/commits` returned `author: null` for **all 8** commits. Vercel's git integration refuses to build a commit whose author it cannot match to a team member. The one deployment that did work was the initial import, triggered from the Vercel UI rather than by a push. | Set the repo-local `user.email` to GitHub's noreply form, `121919462+HaadLIT@users.noreply.github.com`, which always resolves to the account and keeps a personal address out of commit metadata. | VERIFIED |
 
+| 2 | 2026-09-12 | Session cookies in production had **no `HttpOnly` and no `Secure`** flag. `SameSite` was correctly `Lax`. Found by opening DevTools and reading the cookie table. | The flags were set in `src/proxy.ts` only. Session cookies are written in **two** places — the proxy on refresh, and `src/lib/supabase/server.ts` during the sign-in Server Action — and the second passed the library's options straight through. So the path that actually *creates* a session was the unprotected one. Nothing caught it: typecheck, lint, 57 tests, the build, a green CI run and the whole Stage 4 browser gate all passed, because none of them inspects a `Set-Cookie` header. | Extracted `sessionCookieOptions()` into `src/lib/supabase/cookie-options.ts` and pointed both call sites at it, so the attributes exist once. Added 11 tests asserting the flags survive hostile input. | FIXED? |
+
 ## Notes on row 1
 
 **Why it went unnoticed.** Three separate signals all said "fine": `git push` succeeded, GitHub
@@ -42,3 +44,23 @@ Worth recording because it confirms the session cookie is the authority rather t
 in the page, and because it exercises `src/app/ping/write-action.ts`'s own `getClaims()` check
 rather than only the page's. A route that redirects while its action still writes is a real and
 common failure; this one does not have it.
+
+## Notes on row 2
+
+**How it was found.** By opening DevTools and reading the cookie table, because someone asked for
+the actual values. It had been reported as satisfied on the strength of the source saying
+`httpOnly: true` — in one of the two files that needed it.
+
+**The general shape.** A security control written in two places is a control that will be correct
+in one of them. The fix is not "remember to update both"; it is to make there be one place.
+
+**What would have caught it earlier.** An assertion against a real `Set-Cookie` response header
+rather than against the source. The tests added here assert the options object, which is better
+than nothing and is still not the wire.
+
+**Why the Stage 4 gate did not catch it.** Every check in that gate is about behaviour a user can
+see — signing in, reloading, signing out. Cookie flags are invisible in that frame. A gate made
+only of user-visible behaviour cannot detect a control that is invisible until it fails.
+
+**Do not mark VERIFIED** until the cookie table in a browser shows `HttpOnly` and `Secure` ticked
+on the `sb-` cookies in production.

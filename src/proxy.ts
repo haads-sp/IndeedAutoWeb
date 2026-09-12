@@ -21,13 +21,12 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { supabasePublicConfig } from '@/lib/supabase/config';
+import { requestIsHttps, sessionCookieOptions } from '@/lib/supabase/cookie-options';
 
 export async function proxy(request: NextRequest) {
   // HTTPS everywhere except local development. Vercel terminates TLS and sets
   // x-forwarded-proto; Cloudflare is not in the path (BUILD-PLAN.md §4.4).
-  const isHttps =
-    request.headers.get('x-forwarded-proto') === 'https' ||
-    request.nextUrl.protocol === 'https:';
+  const isHttps = requestIsHttps(request.headers) || request.nextUrl.protocol === 'https:';
 
   let response = NextResponse.next({ request });
 
@@ -48,19 +47,7 @@ export async function proxy(request: NextRequest) {
         response = NextResponse.next({ request });
 
         for (const { name, value, options } of cookiesToSet) {
-          response.cookies.set(name, value, {
-            ...options,
-            // BUILD-PLAN.md Stage 4 requires these three explicitly. Supabase sets
-            // sensible defaults, but "the library probably does it" is not the standard
-            // this project works to, and these are cheap to state.
-            httpOnly: true,
-            sameSite: 'lax',
-            // Secure would make the cookie undeliverable over plain http, which is what
-            // local development uses. Conditioned rather than hardcoded so dev works and
-            // production is never downgraded.
-            secure: isHttps,
-            path: '/',
-          });
+          response.cookies.set(name, value, sessionCookieOptions(options, isHttps));
         }
       },
     },

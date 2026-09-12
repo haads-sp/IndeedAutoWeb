@@ -12,9 +12,10 @@
 import 'server-only';
 
 import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 
 import { supabasePublicConfig } from './config';
+import { requestIsHttps, sessionCookieOptions } from './cookie-options';
 
 /**
  * Creates a request-scoped server client.
@@ -25,6 +26,7 @@ import { supabasePublicConfig } from './config';
 export async function createClient() {
   const { url, publishableKey } = supabasePublicConfig();
   const cookieStore = await cookies();
+  const isHttps = requestIsHttps(await headers());
 
   return createServerClient(url, publishableKey, {
     cookies: {
@@ -34,7 +36,8 @@ export async function createClient() {
       setAll(cookiesToSet) {
         try {
           for (const { name, value, options } of cookiesToSet) {
-            cookieStore.set(name, value, options);
+            // Flags forced here, not trusted from the library. See cookie-options.ts.
+            cookieStore.set(name, value, sessionCookieOptions(options, isHttps));
           }
         } catch {
           // Server Components cannot set cookies. This is expected and safe to ignore
