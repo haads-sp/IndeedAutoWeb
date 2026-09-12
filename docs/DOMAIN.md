@@ -224,3 +224,31 @@ issued per-domain when the sender is set up in Resend. Guessing at them now woul
 records we cannot verify. Stage 3 must begin by adding Resend's records and loosening `-all`, and
 must not treat "the app reported success" as evidence a message was delivered — BUILD-PLAN.md
 already requires a real message in a real inbox for that gate.
+
+---
+
+## Vercel imports `.env.example` and creates every variable EMPTY            (2026-09-12, verified here)
+
+Importing the repo into Vercel silently read `.env.example` and created **all eight** variables
+named in it, each with an empty value, scoped to Production and Preview. Nothing warned about this.
+
+The result is a dashboard that lists `SUPABASE_SECRET_KEY`, `UPSTASH_REDIS_REST_TOKEN`,
+`SENTRY_AUTH_TOKEN` and the rest as though they were configured. They are blank. Anyone answering
+"is production set up?" by looking at that list gets the wrong answer, and adding the real variable
+later fails with "A variable with the name … already exists".
+
+**Why it did not break anything.** `findMissing()` in `src/lib/env/registry.ts` treats an empty
+string as missing, not as present:
+
+```ts
+return value === undefined || value === '';
+```
+
+That was written as an obvious-looking edge case with a test beside it ("treats an empty string as
+missing, not as present"). It turns out to be the thing that stops a Vercel-imported blank from
+satisfying a required variable. Had it checked only for `undefined`, a blank `NEXT_PUBLIC_SITE_URL`
+would have passed the boot assertion and produced confirmation emails linking to `undefined`.
+
+**Consequence.** Empty variables for unreached stages were deleted rather than left in place. A
+variable should exist in Vercel when it has a value, and not before — otherwise the dashboard stops
+being evidence of anything.
