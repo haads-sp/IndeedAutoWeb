@@ -54,9 +54,15 @@ the actual values. It had been reported as satisfied on the strength of the sour
 **The general shape.** A security control written in two places is a control that will be correct
 in one of them. The fix is not "remember to update both"; it is to make there be one place.
 
-**What would have caught it earlier.** An assertion against a real `Set-Cookie` response header
-rather than against the source. The tests added here assert the options object, which is better
-than nothing and is still not the wire.
+**What would have caught it earlier, and now does.** `tests/e2e/auth.spec.ts` signs in with a real
+browser and asserts the actual cookies carry HttpOnly, SameSite=Lax and path=/, plus a separate
+spec asserting `document.cookie` cannot see the session at all — the property HttpOnly actually
+buys. Both ran green in CI on 2026-09-12 (12 passed). The spec guards against passing vacuously
+with an explicit check that at least one `sb-` cookie was found.
+
+Still short of proof: the assertion has not been mutation-tested, i.e. nobody has flipped
+httpOnly to false and watched it go red. Doing so needs the E2E account password, which lives only
+in GitHub secrets.
 
 **Why the Stage 4 gate did not catch it.** Every check in that gate is about behaviour a user can
 see — signing in, reloading, signing out. Cookie flags are invisible in that frame. A gate made
