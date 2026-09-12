@@ -195,3 +195,38 @@ correct and useful: Next 16 differs from what a model's training data says, whic
 already hit twice (see `docs/DOMAIN.md`).
 **Rejected.** Deleting it and gitignoring it — same regeneration, plus the guidance is lost.
 **The line that does not move.** None.
+
+---
+
+## Cloudflare proxy stays off, and we accept losing the WAF            (2026-09-12)
+
+**Decision.** `alsayeed.ca` and `www.alsayeed.ca` are CNAMEs to Vercel with Cloudflare's proxy
+**off** (grey cloud, "DNS only"). Cloudflare is a registrar and DNS host for this domain, nothing
+more. Vercel terminates TLS. This makes BUILD-PLAN.md §4.4 true, which it was not before — see
+`docs/DOMAIN.md`.
+
+**Why.** Cloudflare warns that disabling the proxy loses DDoS protection, caching, and security
+rules. Two of those three do not apply: Vercel provides DDoS mitigation and a CDN at its own edge,
+and putting Cloudflare's cache in front of Vercel's would be a second cache with its own staleness
+and ISR-revalidation failure modes. The origin-IP-exposure warning does not apply either — the
+"origin" is Vercel's shared anycast range, which is public by design and has no private address to
+leak.
+
+What decides it is the third point, which is about correctness rather than protection. Proxied,
+every request reaches Vercel from a Cloudflare address. Stage 9 requires rate limiting "per-address
+and per-IP"; per-IP limiting against a proxied domain silently buckets all traffic into a few egress
+IPs and throttles every user as one. It raises no error — it is simply wrong. The fix would be
+reading `CF-Connecting-IP`, which §4.4 explicitly forbids. Stage 4's session cookies are the second
+reason: a second TLS-terminating, caching proxy in front of `Set-Cookie` is a class of bug worth
+being unable to have.
+
+**Rejected.** Leaving the proxy on for the WAF and bot rules. The specific thing that killed it: it
+makes the per-IP half of Stage 9 quietly incorrect, and turns every future session bug into "is it
+Cloudflare?" before it can be anything else.
+
+**The cost, stated plainly.** We lose Cloudflare's WAF and bot management. That is a real reduction
+in defence in depth, not a wash. It is accepted for a pre-launch application whose actual security
+boundary is Row Level Security, and it is revisitable: if the WAF is wanted later, the way back is
+Vercel's own firewall, not re-proxying.
+
+**The line that does not move.** Nothing in this application reads a Cloudflare header.

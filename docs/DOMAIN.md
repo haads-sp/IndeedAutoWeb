@@ -131,8 +131,19 @@ HS256 secret, `getClaims()` falls back to a network call to the Auth server.
 **The rule is unaffected**: never use `getSession()` for an access decision on the server. Only the
 stated *reason* depends on the key type.
 
-**Open, to confirm at Stage 2.** Which signing scheme our project actually uses. Check the Supabase
-dashboard under JWT settings when the project is created, and replace this paragraph with the answer.
+**RESOLVED (2026-09-12, verified here).** Both projects use **asymmetric** keys. Their JWKS
+endpoints each publish one elliptic-curve key:
+
+```
+GET https://<ref>.supabase.co/auth/v1/.well-known/jwks.json  -> HTTP 200, 1 key
+  production:  kty=EC  alg=ES256  kid=2502318f-963…
+  preview:     kty=EC  alg=ES256  kid=ecadd6c2-f36…
+```
+
+So `getClaims()` verifies signatures locally via WebCrypto against a cached JWKS, with no network
+call to the Auth server — the fast path §4.3 assumes. Nothing needs to change, and the caveat above
+is now historical rather than open. If a future project is created on the legacy shared HS256 secret,
+this endpoint returns zero keys and `getClaims()` silently becomes a network round trip per call.
 
 ---
 
@@ -150,3 +161,66 @@ Stage 1 needs it — lint passes and the boundaries rule was verified to enforce
 
 **Open.** If boundaries rules misbehave on module resolution once real cross-layer imports exist in
 Stage 3, this unrun postinstall is the first thing to suspect. `npm approve-scripts` is the fix.
+
+---
+
+## Cloudflare was proxying `alsayeed.ca`, contradicting §4.4            (2026-09-12, verified here)
+
+BUILD-PLAN.md §4.4 states as a pinned fact: "The domain is on Cloudflare with the proxy off
+(grey cloud); Vercel terminates TLS." It was not. Both CNAMEs were **Proxied** (orange cloud) when
+the domain was inspected:
+
+```
+alsayeed.ca      CNAME  86ed5c346dc46b45.vercel-dns-017.com  Proxied
+www.alsayeed.ca  CNAME  86ed5c346dc46b45.vercel-dns-017.com  Proxied
+```
+
+So §4.4 described the intended state, not the actual one. Both were switched to **DNS only**.
+
+**Why this matters beyond tidiness.** With the proxy on, every request reaches Vercel from a
+Cloudflare IP. Stage 9 requires rate limiting "per-address and per-IP" — and per-IP limiting against
+a proxied domain buckets the entire internet into a handful of Cloudflare egress addresses. It does
+not throw an error; it silently rate-limits all users as though they were one. That is the failure
+mode §4.4 exists to prevent, and it would have looked like a mysterious bug rather than a
+configuration mistake.
+
+**Also note — Vercel's CNAME target is no longer the generic `cname.vercel-dns.com`** that most
+documentation still shows. It is a hashed hostname, here `86ed5c346dc46b45.vercel-dns-017.com`.
+Vercel's own docs describe it as per-project ("Each project has a unique CNAME record e.g.
+`d1d4fc829fe7bc7c.vercel-dns-017.com`"), which suggested the value would have to change when the
+domain moved between projects.
+
+**It did not.** The domain was removed from one Vercel project and added to another in the same
+account, and the existing CNAME kept working with no edit at all — `https://alsayeed.ca/ping`
+returned HTTP 200 serving the new project within seconds. So the hashed target is stable across
+projects in the same account, not strictly per-project as the wording implies. Recorded because the
+documentation's phrasing predicts an unnecessary DNS edit, and editing a working CNAME to a
+"corrected" value is how a live domain gets broken for a propagation cycle.
+
+---
+
+## SPF and DMARC on `alsayeed.ca` will reject Stage 3's email            (2026-09-12, verified here)
+
+Found while moving the domain. Two existing DNS records:
+
+```
+alsayeed.ca         TXT  "v=spf1 -all"
+_dmarc.alsayeed.ca  TXT  "v=DMARC1; p=reject; rua=mailto:..."
+```
+
+`v=spf1 -all` with no mechanisms means **no host on earth is authorised to send mail as this
+domain** — it is the correct hardening for a domain that sends no email, which this one currently
+does not. `p=reject` then instructs receiving servers to **reject**, not quarantine, anything that
+fails alignment.
+
+**Consequence for Stage 3.** Verification email is sent by Resend through Supabase's custom SMTP. If
+the sender address is `@alsayeed.ca`, these two records guarantee every message is rejected at the
+receiving server. Nothing in the application would report an error: Supabase hands the message to
+Resend successfully, Resend sends it, and the recipient's server refuses it. The symptom is "the
+email never arrives", with a green path all the way through our own logs.
+
+**Not fixed now, deliberately.** The fix is Resend's own SPF include and DKIM records, and those are
+issued per-domain when the sender is set up in Resend. Guessing at them now would mean writing DNS
+records we cannot verify. Stage 3 must begin by adding Resend's records and loosening `-all`, and
+must not treat "the app reported success" as evidence a message was delivered — BUILD-PLAN.md
+already requires a real message in a real inbox for that gate.
