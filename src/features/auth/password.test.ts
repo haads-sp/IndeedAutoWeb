@@ -171,3 +171,23 @@ describe('open-redirect guard', () => {
     expect(safeNext(input)).toBe(input);
   });
 });
+
+describe('boot assertion covers client-scoped variables too', () => {
+  it('a required NEXT_PUBLIC_ variable is actually checked, not merely declared', async () => {
+    const { requiredVars, assertPresent } = await import('@/lib/env/registry');
+
+    const clientRequired = requiredVars('client').map((v) => v.name);
+    expect(clientRequired.length).toBeGreaterThan(0);
+
+    // With none of them set, the assertion must fail and name every one.
+    let message = '';
+    try {
+      assertPresent('client', clientRequired, {});
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    for (const name of clientRequired) {
+      expect(message).toContain(name);
+    }
+  });
+});

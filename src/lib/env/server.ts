@@ -41,6 +41,18 @@ export function serverEnv(): ServerEnv {
     process.env,
   );
 
+  // Client-scoped variables are asserted HERE too, not only on the client. On the server
+  // `process.env` holds every NEXT_PUBLIC_ value, so boot is the earliest and cheapest
+  // place to catch a missing one — and the only place that catches it before a user does.
+  // Without this, a required NEXT_PUBLIC_ variable was declared required and then checked
+  // by nothing, which is the exact failure BUILD-PLAN.md §8 asks about: "Did I write a
+  // rule in a document that nothing checks?"
+  assertPresent(
+    'client',
+    requiredVars('client').map((v) => v.name),
+    process.env,
+  );
+
   cached = {
     SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
     UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
