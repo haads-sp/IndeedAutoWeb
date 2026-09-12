@@ -252,3 +252,26 @@ would have passed the boot assertion and produced confirmation emails linking to
 **Consequence.** Empty variables for unreached stages were deleted rather than left in place. A
 variable should exist in Vercel when it has a value, and not before — otherwise the dashboard stops
 being evidence of anything.
+
+---
+
+## Repeat signup for a confirmed address sends no email, and that is the point            (2026-09-12, verified here)
+
+Observed during the Stage 3 gate. Signing up a second time with an address that is already
+registered and confirmed produces:
+
+- **the identical `/verify-email` page** — same copy, no hint that the address is taken
+- **no email at all**, because Supabase has no confirmation left to send for a confirmed account
+
+Both halves matter. The identical response is what defeats account enumeration; the absent email is
+what stops the flow being abused to spam a stranger's inbox, and it means the only place the truth
+appears is the inbox itself.
+
+**Consequence for anyone testing this later:** "I signed up and no email arrived" is the EXPECTED
+result for an existing confirmed account. It is not evidence that SMTP is broken. Diagnose SMTP with
+an address that has never been registered.
+
+**Also:** the password supplied on that second attempt is discarded. Supabase does not modify
+credentials on a repeat signup, so the original password still stands. That is deliberate — if it
+did overwrite, anyone could reset a stranger's password by "signing up" as them. Changing a password
+is Stage 7 and requires proving control of the inbox first.
