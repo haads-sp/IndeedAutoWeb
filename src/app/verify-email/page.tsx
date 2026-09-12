@@ -17,10 +17,22 @@ export default async function VerifyEmailPage({
 }) {
   const { state } = await searchParams;
   const failed = state === 'invalid';
+  const unconfirmed = state === 'unconfirmed';
 
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 p-8">
-      {failed ? (
+      {unconfirmed ? (
+        <>
+          <h1 className="text-lg font-semibold">Confirm your email first</h1>
+          <p className="text-sm text-neutral-500">
+            Your password was correct, but this address has not been confirmed yet. Open the
+            link in the email we sent when you signed up.
+          </p>
+          <p className="text-xs text-neutral-400">
+            Links expire. If yours has, sign up again with the same address to get a new one.
+          </p>
+        </>
+      ) : failed ? (
         <>
           <h1 className="text-lg font-semibold">That link did not work</h1>
           <p className="text-sm text-neutral-500">

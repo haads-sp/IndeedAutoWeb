@@ -275,3 +275,31 @@ an address that has never been registered.
 credentials on a repeat signup, so the original password still stands. That is deliberate — if it
 did overwrite, anyone could reset a stranger's password by "signing up" as them. Changing a password
 is Stage 7 and requires proving control of the inbox first.
+
+---
+
+## Supabase refresh tokens are single-use            (2026-09-12, from documentation — NOT yet observed here)
+
+BUILD-PLAN.md Stage 4 flags this and it is worth stating precisely, because the symptom looks
+like a bug in our code.
+
+A refresh token may be redeemed **once**. Redeeming it returns a new access token and a new refresh
+token, and invalidates the old one. So two tabs that wake up and refresh at the same moment can race:
+one redeems the token, the other presents a token that has just been retired and gets nothing back.
+The second tab momentarily has **no session**, despite the user being perfectly well signed in.
+
+**What we do about it.** `src/proxy.ts` calls `getClaims()` and, whatever the result,
+**never clears a cookie on failure**. A transient failure therefore leaves the existing cookies
+untouched and self-heals on the next request. The failure mode we are avoiding is the tempting one:
+"no claims, so sign them out" — which would turn a millisecond race into a real logout.
+
+Supabase also allows a brief reuse interval during which the previous refresh token still works,
+which should absorb most of this. **That interval is documented behaviour we have not measured.**
+
+**Status: not observed.** No transient null session has been seen in this project. This entry
+records the hazard and our position on it; if a user reports being randomly signed out with
+multiple tabs open, start here, and add an ISSUES.md row rather than treating this paragraph as
+proof it cannot happen.
+
+**Do not "fix" this by making `/ping` (or later `/portal`) tolerate a null session.** Route
+protection failing closed is correct. The right place to absorb the race is the refresh path.
