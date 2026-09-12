@@ -1,0 +1,62 @@
+name: E2E
+
+# Browser-level gates, run on every push.
+#
+# These exist because of docs/ISSUES.md row 2: session cookies reached production without
+# HttpOnly while typecheck, lint, unit tests, the build, a green CI run AND the manual
+# Stage 4 browser gate all passed. That gate was six steps a human did once. This is the
+# same set of checks, run every time.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: browser gates
+    runs-on: ubuntu-latest
+
+    env:
+      # The PREVIEW project, never production. This suite signs in, writes rows and
+      # deliberately trips limits; it has no business near real user data.
+      #
+      # Both values are public by definition — the URL and the publishable key are inlined
+      # into the browser bundle on every page load. docs/SECRETS.md records why these are
+      # Config rather than Secret. The secret key is absent and unnecessary.
+      NEXT_PUBLIC_SUPABASE_URL: https://hekickdcijwwycymizpx.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_MdYyubnmT_H0RnkEngh5bQ_tk-geUtS
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3210
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser gates
+        env:
+          # A confirmed user in the PREVIEW project. When these are absent the signed-in
+          # specs skip and say so, rather than passing quietly having done nothing.
+          E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
+          E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+        run: npm run test:e2e
+
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

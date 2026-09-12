@@ -40,3 +40,24 @@ regexTarget = "match"
 regexes = [
   '''sb_(secret|publishable)_(?:[A-Za-z0-9_-]{0,15})?(?:[^A-Za-z0-9_-]|$)''',
 ]
+
+[[allowlists]]
+description = """
+Supabase PUBLISHABLE keys.
+
+`sb_publishable_…` is public by definition: Next inlines it into the JavaScript bundle, so it is
+readable by anyone who loads a single page. docs/SECRETS.md records it as browser-visible and as a
+Vercel Config value rather than a Secret. Committing it to a private repo is strictly less exposure
+than production already has.
+
+gitleaks flags it on entropy alone via generic-api-key, which is correct behaviour for a tool that
+cannot know which keys are meant to be public.
+
+DELIBERATELY NARROW: this matches `sb_publishable_` only. A `sb_secret_` key — the one carrying
+BYPASSRLS — is NOT covered here and is still a finding, both from this rule and from
+scripts/secret-scan.mjs.
+"""
+regexTarget = "match"
+regexes = [
+  '''sb_publishable_[A-Za-z0-9_-]{8,}''',
+]
