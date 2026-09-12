@@ -31,3 +31,14 @@ whole bug.
 
 which matches `git rev-parse HEAD` exactly. The symptom is gone, and the gap that hid it is closed:
 `/api/version` now makes "is the deployed commit the one I pushed?" a question with an answer.
+
+## Verified behaviours (not issues, but evidence worth keeping)
+
+**Signing out in one tab prevents writes from another (2026-09-12).** Tested by hand: signed in,
+duplicated the tab, signed out in one, then attempted a write in the other. The write did not
+happen — the second tab was redirected to sign-in — and no orphan row was created.
+
+Worth recording because it confirms the session cookie is the authority rather than anything held
+in the page, and because it exercises `src/app/ping/write-action.ts`'s own `getClaims()` check
+rather than only the page's. A route that redirects while its action still writes is a real and
+common failure; this one does not have it.
