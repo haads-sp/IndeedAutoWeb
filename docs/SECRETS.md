@@ -57,3 +57,34 @@ document wrong at once.
 3. Only then worry about history. Rotation is what makes the leaked value worthless.
 4. Add a row to `docs/ISSUES.md`, status `FIXED?`, and move it to `VERIFIED` only once the old value
    is confirmed rejected by the vendor.
+
+## Vercel variable type: Config or Secret
+
+Vercel asks whether each environment variable is a **Config** value or a **Secret**. A Secret is
+write-only once saved — you cannot read it back in the dashboard.
+
+The rule is mechanical, and follows the "Browser?" column above:
+
+| Browser-visible | Vercel type |
+|---|---|
+| Yes (`NEXT_PUBLIC_*`) | **Config** |
+| No | **Secret** |
+
+**Never mark a `NEXT_PUBLIC_*` variable as a Secret.** Next.js inlines those values into the
+JavaScript bundle at build time, so the value is public no matter what the dashboard says. Marking
+it Secret hides it from the people who are allowed to see it, protects it from nobody, and implies
+a guarantee that does not exist. If a value genuinely needs to be secret, the fix is to remove the
+`NEXT_PUBLIC_` prefix and read it through `src/lib/env/server.ts`, not to change a dropdown.
+
+Current state, for reference:
+
+| Variable | Type | Set where |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Config | Vercel, per environment |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Config | Vercel, per environment |
+| `NEXT_PUBLIC_SITE_URL` | Config | Vercel, per environment |
+| `SUPABASE_SECRET_KEY` | Secret | Not set — nothing needs `BYPASSRLS` yet |
+| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | Secret | Not set — Stage 9 |
+| `SENTRY_AUTH_TOKEN` | Secret | Not set — Stage 10 |
+| `NEXT_PUBLIC_SENTRY_DSN` | Config | Not set — Stage 10 |
+| Resend API key | n/a | Supabase dashboard SMTP settings only. Never a Vercel variable, because this application never calls Resend. |
