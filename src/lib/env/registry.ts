@@ -44,7 +44,7 @@ export const ENV_REGISTRY: readonly EnvVar[] = [
   {
     name: 'NEXT_PUBLIC_SITE_URL',
     scope: 'client',
-    requiredFrom: null,
+    requiredFrom: 3,
     description: 'Absolute origin of this deployment.',
   },
   {
@@ -74,7 +74,7 @@ export const ENV_REGISTRY: readonly EnvVar[] = [
 ];
 
 /** The stage this checkout currently implements. Bumped as each stage lands. */
-export const CURRENT_STAGE = 2;
+export const CURRENT_STAGE = 3;
 
 /** Variables in `scope` that must be present at `stage`. */
 export function requiredVars(scope: Scope, stage: number = CURRENT_STAGE): readonly EnvVar[] {

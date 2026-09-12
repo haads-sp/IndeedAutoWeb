@@ -230,3 +230,52 @@ boundary is Row Level Security, and it is revisitable: if the WAF is wanted late
 Vercel's own firewall, not re-proxying.
 
 **The line that does not move.** Nothing in this application reads a Cloudflare header.
+
+---
+
+## Length and breach history, no composition rules            (2026-09-12)
+
+**Decision.** Minimum 12 characters, maximum 128 bytes, checked against known breaches. **No**
+required digits, uppercase, or symbols. Supabase's "Required characters" setting is left at none.
+
+**Why.** BUILD-PLAN.md Stage 3: "do not impose composition rules that push users toward
+`Password1!`". Composition rules do not produce entropy, they produce predictable substitutions —
+`a`→`@`, a capital on the first letter, a `1!` on the end — while blocking genuinely strong
+passphrases like `correct horse battery staple`. Length plus a breach check does the work those
+rules pretend to do. The 128-byte ceiling is not a strength rule at all: it is a guard, because
+bcrypt-family hashes silently truncate past 72 bytes and unbounded input invites CPU exhaustion by
+hashing a megabyte on every attempt.
+
+**Rejected.** Supabase's own documented advice, which is to "use the strongest option of requiring
+digits, lowercase and uppercase letters, and symbols". We are deliberately contradicting the vendor
+here. The specific thing that killed it: it makes the password field harder to satisfy without
+making the password harder to guess.
+
+**The line that does not move.** Password rules are justified by what they do to guessability, not
+by how strict they look.
+
+---
+
+## The breached-password check is ours, not Supabase's            (2026-09-12)
+
+**Decision.** `src/features/auth/breached-password.ts` queries HaveIBeenPwned's k-anonymity range
+API directly. It sends the first five characters of the password's SHA-1 hash and matches the
+returned suffixes locally.
+
+**Why.** Supabase offers this natively, but its docs state "Leaked password protection is available
+on the Pro Plan and above" — $25/month, and we have two projects. The check is roughly 25 lines
+against a free public API. Doing it ourselves also makes it testable, which the native version is
+not: there are tests asserting that the full hash never leaves the process, that padding entries
+are not treated as hits, and that an HIBP outage does not reject valid passwords.
+
+**Rejected.** Upgrading to Pro purely for this (a recurring cost for one feature we can write), and
+skipping the check entirely (defensible under "if Supabase offers it", but it is the single
+highest-value password control available).
+
+**The line that does not move.** The password and its full hash never leave this process. Only five
+hex characters go over the wire.
+
+**Deliberately fails open.** If HIBP is unreachable, signup proceeds and `breachCheckSkipped` is
+returned so the caller can record that the check did not run. The alternative — a third-party
+outage halting all account creation to enforce defence in depth — is worse. `unavailable` must
+never be treated as `breached`.

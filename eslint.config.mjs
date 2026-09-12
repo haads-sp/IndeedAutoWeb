@@ -22,26 +22,68 @@ const boundariesConfig = {
   plugins: { boundaries },
   settings: {
     "boundaries/elements": [
-      { type: "app", pattern: "src/app/**", mode: "full" },
-      { type: "features", pattern: "src/features/*/**", mode: "full", capture: ["feature"] },
-      { type: "lib", pattern: "src/lib/**", mode: "full" },
-      { type: "types", pattern: "src/types/**", mode: "full" },
+      { type: "app", pattern: "src/app/**", partialMatch: false },
+      { type: "features", pattern: "src/features/*/**", partialMatch: false, capture: ["feature"] },
+      { type: "lib", pattern: "src/lib/**", partialMatch: false },
+      { type: "types", pattern: "src/types/**", partialMatch: false },
     ],
     "boundaries/include": ["src/**/*"],
   },
   rules: {
-    // OFF by design. The intended policy, for when Stage 3 introduces the first feature:
-    //
-    //   "boundaries/dependencies": ["error", {
-    //     default: "disallow",
-    //     rules: [
-    //       { from: "app",      allow: ["features", "lib", "types"] },
-    //       { from: "features", allow: [["features", { feature: "${from.feature}" }], "lib", "types"] },
-    //       { from: "lib",      allow: ["lib", "types"] },
-    //       { from: "types",    allow: ["types"] },
-    //     ],
-    //   }],
-    "boundaries/dependencies": "off",
+    // ON as of Stage 3, which introduced the first feature (src/features/auth). This was
+    // the one-line change the empty ruleset existed to make possible.
+    "boundaries/dependencies": [
+      "error",
+      {
+        default: "disallow",
+        message:
+          "{{ from.element.type }} may not import {{ to.element.type }}. See docs/ARCHITECTURE.md.",
+        policies: [
+          {
+            // Routes compose. They may reach anything below them, and their own
+            // colocated files — a page importing its ./actions or ./globals.css is
+            // normal and is not a layering violation.
+            from: { element: { type: "app" } },
+            allow: [
+              { to: { element: { type: "app" } } },
+              { to: { element: { type: "features" } } },
+              { to: { element: { type: "lib" } } },
+              { to: { element: { type: "types" } } },
+            ],
+          },
+          {
+            // A feature may use its OWN files, plus the layers below. The capture is what
+            // makes "its own" precise: features/auth cannot import features/billing.
+            from: { element: { type: "features" } },
+            allow: [
+              {
+                to: {
+                  element: {
+                    type: "features",
+                    captured: { feature: "{{ from.element.captured.feature }}" },
+                  },
+                },
+              },
+              { to: { element: { type: "lib" } } },
+              { to: { element: { type: "types" } } },
+            ],
+          },
+          {
+            // Shared capability. Knows nothing about any use case, so it cannot reach up.
+            from: { element: { type: "lib" } },
+            allow: [
+              { to: { element: { type: "lib" } } },
+              { to: { element: { type: "types" } } },
+            ],
+          },
+          {
+            // Types import nothing but types.
+            from: { element: { type: "types" } },
+            allow: [{ to: { element: { type: "types" } } }],
+          },
+        ],
+      },
+    ],
     "boundaries/no-unknown-dependencies": "off",
     "boundaries/no-unknown-files": "off",
   },
