@@ -9,7 +9,7 @@ on belief is the failure mode this table exists to prevent (prohibition P7).
 
 | # | first seen | symptom | diagnosis | fix | status |
 |---|---|---|---|---|---|
-| 1 | 2026-09-12 | Every git-triggered Vercel deploy silently failed. `alsayeed.ca` stayed frozen on Stage 2 code — `/ping` served fine, `/signup` returned 404 — while CI was green and `git push` reported success. Surfaced only by a Vercel email: "haadlit.co@gmail.com attempted to deploy a commit … but they're not a member of the team." | `haadlit.co@gmail.com` was not a verified email on the GitHub account, so GitHub could not attribute the commits to a user. `gh api repos/HaadLIT/IndeedAutoWeb/commits` returned `author: null` for **all 8** commits. Vercel's git integration refuses to build a commit whose author it cannot match to a team member. The one deployment that did work was the initial import, triggered from the Vercel UI rather than by a push. | Set the repo-local `user.email` to GitHub's noreply form, `121919462+HaadLIT@users.noreply.github.com`, which always resolves to the account and keeps a personal address out of commit metadata. | FIXED? |
+| 1 | 2026-09-12 | Every git-triggered Vercel deploy silently failed. `alsayeed.ca` stayed frozen on Stage 2 code — `/ping` served fine, `/signup` returned 404 — while CI was green and `git push` reported success. Surfaced only by a Vercel email: "haadlit.co@gmail.com attempted to deploy a commit … but they're not a member of the team." | `haadlit.co@gmail.com` was not a verified email on the GitHub account, so GitHub could not attribute the commits to a user. `gh api repos/HaadLIT/IndeedAutoWeb/commits` returned `author: null` for **all 8** commits. Vercel's git integration refuses to build a commit whose author it cannot match to a team member. The one deployment that did work was the initial import, triggered from the Vercel UI rather than by a push. | Set the repo-local `user.email` to GitHub's noreply form, `121919462+HaadLIT@users.noreply.github.com`, which always resolves to the account and keeps a personal address out of commit metadata. | VERIFIED |
 
 ## Notes on row 1
 
@@ -22,5 +22,12 @@ checking that the site returns 200. `/signup` returning 404 was visible for some
 as "not deployed yet" rather than "deploys are broken" — the difference between those two is the
 whole bug.
 
-**Do not mark this VERIFIED** until a push has been observed to produce a deployment carrying that
-commit's SHA.
+**VERIFIED 2026-09-12.** After the fix, a push produced a deployment and `/api/version` returned:
+
+```json
+{"commit":"107318374d7759ee5ee4fb15da801a599e35f5c6","branch":"main",
+ "environment":"production","builtAt":"2026-09-12T08:15:44.576Z"}
+```
+
+which matches `git rev-parse HEAD` exactly. The symptom is gone, and the gap that hid it is closed:
+`/api/version` now makes "is the deployed commit the one I pushed?" a question with an answer.
