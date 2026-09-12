@@ -1,0 +1,121 @@
+name: CI
+
+# Every push on every branch, and every pull request. BUILD-PLAN.md §1b: each step below
+# must fail the build on any failure.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned deliberately. See docs/DECISIONS.md — a security gate must be deterministic.
+  GITLEAKS_VERSION: "8.30.1"
+
+jobs:
+  verify:
+    name: typecheck, lint, test, build, secrets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # gitleaks scans history, not just the working tree.
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          # Matches the local development version. See docs/DECISIONS.md.
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 1. tsc --noEmit. `next typegen` first, or route types are not checked at all.
+      - name: Typecheck
+        run: npm run typecheck
+
+      # 2. lint. `next lint` was removed in Next 16 — this is the ESLint CLI.
+      - name: Lint
+        run: npm run lint
+
+      # 3. tests. Includes the planted-secret test, which generates its fixture at run
+      #    time in a temp directory and never commits it.
+      - name: Test
+        run: npm test
+
+      # 4. next build.
+      - name: Build
+        run: npm run build
+
+      # 5. gitleaks, over the full history.
+      - name: Install gitleaks
+        run: |
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: gitleaks — scan full history
+        run: gitleaks git --no-banner --redact --verbose --config .gitleaks.toml .
+
+      - name: gitleaks — scan working tree
+        run: gitleaks dir --no-banner --redact --verbose --config .gitleaks.toml .
+
+      # 6. Our own scanner: the same Node script developers run locally on Windows.
+      - name: Secret scan
+        run: npm run scan:secrets
+
+      # The literal §1b greps, corrected for two defects in the document. See
+      # docs/DOMAIN.md and docs/DECISIONS.md.
+      #
+      #   (a) grep exits 0 on MATCH. A `run:` block is `bash -e`, so the commands as
+      #       written in §1b fail when the repo is clean and pass when a secret is
+      #       found — exactly backwards. Hence `if grep -q ...; then exit 1; fi`.
+      #   (b) --exclude-dir=node_modules does not exclude .git, and `grep -r .` will
+      #       happily descend into packed objects. docs/ is excluded because prose
+      #       about secrets is not a secret.
+      - name: Secret greps (BUILD-PLAN.md §1b)
+        run: |
+          set -euo pipefail
+          status=0
+
+          echo "--- any secret hiding behind a public prefix ---"
+          if grep -rnE "NEXT_PUBLIC_[A-Z0-9_]*(SECRET|SERVICE_ROLE)" \
+               --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=docs \
+               --exclude-dir=.next . ; then
+            echo "::error::A NEXT_PUBLIC_ variable names a secret."
+            status=1
+          else
+            echo "clean"
+          fi
+
+          echo "--- any literal secret key committed ---"
+          if grep -rnE "sb_secret_[A-Za-z0-9_-]{16,}" \
+               --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=docs \
+               --exclude-dir=.next . ; then
+            echo "::error::A Supabase secret key literal is committed."
+            status=1
+          fi
+
+          exit $status
+
+      # 7. Anything that made it into the build output. This is the check that catches a
+      #    server secret accidentally inlined into a client bundle.
+      - name: Secret scan of build output
+        run: |
+          set -euo pipefail
+          test -d .next || { echo "::error::.next/ missing — did the build run?"; exit 1; }
+
+          if grep -rqE "sb_secret_[A-Za-z0-9_-]{16,}" .next/ ; then
+            echo "::error::A Supabase secret key reached the build output."
+            grep -rnE "sb_secret_[A-Za-z0-9_-]{16,}" .next/ | head -20
+            exit 1
+          fi
+          echo "build output clean"

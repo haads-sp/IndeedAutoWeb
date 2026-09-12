@@ -1,0 +1,42 @@
+# gitleaks configuration.
+#
+# Starts from the full default ruleset and narrows it as little as possible. Every
+# allowlist below must say why the thing it allows is not a secret — an allowlist entry
+# without a reason is how a real leak gets waved through later.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+Build output and installed dependencies.
+
+`next build` writes its own generated preview-mode keys into .next/ — previewModeEncryptionKey,
+previewModeSigningKey, and an encryption key in .next/cache — which gitleaks correctly identifies as
+high-entropy secrets. They are generated per build, are not credentials of ours, and .next/ is
+gitignored so none of it is ever committed. node_modules/ is third-party code we do not control.
+
+This is NOT a blind spot: BUILD-PLAN.md §1b's requirement that no secret reach the build output is
+enforced separately in CI by an explicit grep of .next/ for key-shaped Supabase values, which is the
+thing that would actually indicate one of OUR secrets was inlined into a bundle.
+"""
+paths = [
+  '''^\.next/''',
+  '''^node_modules/''',
+]
+
+[[allowlists]]
+description = """
+Prose that names key PREFIXES.
+
+docs/, CLAUDE.md, README.md and the scanner itself all discuss `sb_secret_` and `sb_publishable_` by
+name, because telling people which shapes are dangerous requires naming the shapes. A prefix with no
+value attached is not a key.
+
+Scoped tightly on purpose: this allows the prefix followed by fewer than 16 key characters, so a real
+key pasted into a document is still a finding.
+"""
+regexTarget = "match"
+regexes = [
+  '''sb_(secret|publishable)_(?:[A-Za-z0-9_-]{0,15})?(?:[^A-Za-z0-9_-]|$)''',
+]
