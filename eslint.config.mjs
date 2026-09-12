@@ -89,10 +89,30 @@ const boundariesConfig = {
   },
 };
 
+/**
+ * An underscore prefix means "deliberately unused" — a parameter kept for its position in
+ * a signature, or a destructured value skipped over. Without this, the only way to silence
+ * the warning is to delete the name, which loses the documentation of what that slot is.
+ */
+const unusedVarsConfig = {
+  files: ["**/*.{ts,tsx,js,jsx,mjs,mts}"],
+  rules: {
+    "@typescript-eslint/no-unused-vars": [
+      "warn",
+      {
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+        caughtErrorsIgnorePattern: "^_",
+      },
+    ],
+  },
+};
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   boundariesConfig,
+  unusedVarsConfig,
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
