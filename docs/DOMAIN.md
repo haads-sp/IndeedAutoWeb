@@ -303,3 +303,36 @@ proof it cannot happen.
 
 **Do not "fix" this by making `/ping` (or later `/portal`) tolerate a null session.** Route
 protection failing closed is correct. The right place to absorb the race is the refresh path.
+
+---
+
+## Upstash rate-limit windows are epoch-aligned, so "retry in N" understates the wait            (2026-09-12, verified here)
+
+Verified by driving the production login action directly. With a per-address limit of 5 per 15
+minutes, attempts 1–5 returned `invalid_credentials` and attempt 6 returned:
+
+```
+Location: /login?outcome=rate_limited&retry=37
+```
+
+**37 seconds, not 15 minutes.** That is not a bug, and it is not the remaining window either.
+`@upstash/ratelimit` aligns windows to wall-clock epoch time (`floor(now / windowMs)`), not to when
+a given user's first attempt happened. The probe ran at roughly 21:59:23, and the next 15-minute
+boundary was 22:00:00 — 37 seconds away. `reset` is the end of the **current** window, so it can be
+anything from the full window down to a second.
+
+**Consequence, and it cuts both ways.** With `slidingWindow`, capacity does not all come back at
+that boundary: the previous window's count is still weighted in and decays as the new window
+progresses. So the number we show a user can be *optimistic* — they may try again at 37 seconds and
+still be blocked. The copy in `src/app/login/page.tsx` deliberately reads "Try again in …" rather
+than "You may retry at …", but it is still an estimate presented as though it were exact.
+
+**Not changed now.** The alternative is either a fixed window (which lets an attacker burn a full
+quota at the end of one window and again at the start of the next — the reason `slidingWindow` was
+chosen) or computing a true worst-case retry and overstating the wait for honest users. Recorded so
+that "I waited the time it told me and was still blocked" is a known behaviour rather than a new
+investigation.
+
+**Also confirmed in the same run:** a login attempt for an address that has never been registered
+returns `invalid_credentials` — identical to a wrong password on a real account. No enumeration
+oracle on the login form.
