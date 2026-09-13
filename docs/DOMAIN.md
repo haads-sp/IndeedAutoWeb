@@ -409,3 +409,35 @@ show the result is zero rows. Anything less confuses "no policy let me see it" w
 
 **Why INSERT differs:** a `WITH CHECK` violation happens on a row being created, which has
 no existing-row visibility to filter, so there is something concrete to reject.
+
+---
+
+## "Signed in AND unverified" is currently unreachable            (2026-09-13, verified here)
+
+BUILD-PLAN.md §7 gives "Signed in, unverified" its own column and calls it "the one that gets
+skipped". Testing it revealed that, as configured, **the state cannot be entered at all.**
+
+With email confirmation required (`mailer_autoconfirm: false`), `signUp` issues **no session**. An
+unconfirmed user therefore has nothing to be unverified *with* — they are simply anonymous. And
+`signInWithPassword` refuses them, so they cannot obtain one by signing in either.
+
+Observed on production, in order:
+
+1. `/portal` in a private window → redirected to `/login`
+2. Signed up with a fresh address, did **not** click the link → the standard "Check your email" page
+3. Signed in with those exact credentials → landed on `/verify-email`: *"Your password was correct,
+   but this address has not been confirmed yet"*
+4. `/portal` again in that same window → still redirected to `/login`
+
+Step 3 is the interesting one: **the password was accepted and it bought nothing.** That is P4
+working — "correct credentials" and "verified account" are answered separately.
+
+**The unverified branch in `/portal` stays.** It is defensive code for a state that cannot presently
+occur, and that is the point: it becomes reachable the moment someone turns off "Confirm email" in
+the Supabase dashboard, enables an auto-confirming provider, or adds social login in Phase 2. A
+guard that only exists once the hole opens is a guard added under pressure.
+
+**Consequence for Stage 6.** The access matrix's "signed in, unverified" column cannot be tested
+end to end today. Verifying it means temporarily disabling email confirmation on the PREVIEW project
+and checking that `/portal` redirects to `/verify-email` rather than rendering. That is worth doing
+once, deliberately, and undoing immediately.

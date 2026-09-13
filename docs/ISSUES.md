@@ -13,6 +13,8 @@ on belief is the failure mode this table exists to prevent (prohibition P7).
 
 | 2 | 2026-09-12 | Session cookies in production had **no `HttpOnly` and no `Secure`** flag. `SameSite` was correctly `Lax`. Found by opening DevTools and reading the cookie table. | The flags were set in `src/proxy.ts` only. Session cookies are written in **two** places — the proxy on refresh, and `src/lib/supabase/server.ts` during the sign-in Server Action — and the second passed the library's options straight through. So the path that actually *creates* a session was the unprotected one. Nothing caught it: typecheck, lint, 57 tests, the build, a green CI run and the whole Stage 4 browser gate all passed, because none of them inspects a `Set-Cookie` header. | Extracted `sessionCookieOptions()` into `src/lib/supabase/cookie-options.ts` and pointed both call sites at it, so the attributes exist once. Added 11 tests asserting the flags survive hostile input. | VERIFIED |
 
+| 3 | 2026-09-13 | `main` went red on the E2E workflow. The own-profile update spec failed with the user-facing message "Could not save that. Please try again." | The Stage 5 code was pushed BEFORE the migration creating `profiles` had been applied to the preview project, which is what E2E runs against. The table did not exist, so the update failed. Nothing was wrong with the code: the next commit, pushed after `supabase db push`, was green. | Recorded the ordering rule as a recipe in docs/EXTENDING.md: apply migrations to preview, then production, and only then push the code. | VERIFIED |
+
 ## Notes on row 1
 
 **Why it went unnoticed.** Three separate signals all said "fine": `git push` succeeded, GitHub
