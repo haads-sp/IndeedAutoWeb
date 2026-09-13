@@ -371,3 +371,41 @@ authoritative:
 
 This is precisely the trap BUILD-PLAN.md §7 points at: "The 'signed in, unverified' column is the
 one that gets skipped." The subtler version is checking it against a field the user controls.
+
+---
+
+## An RLS-denied UPDATE or DELETE returns 204, not an error            (2026-09-13, verified here)
+
+Probing the new `profiles` table anonymously:
+
+```
+POST   /rest/v1/profiles   -> 401  "new row violates row-level security policy"
+PATCH  /rest/v1/profiles   -> 204
+DELETE /rest/v1/profiles   -> 204
+```
+
+The INSERT is refused loudly. The UPDATE and DELETE look like they **succeeded**.
+
+They did not. With RLS enabled and no matching policy, the rows are simply not visible to
+the statement, so it updates or deletes **zero rows** — which is a perfectly successful
+statement. Postgres does not raise; PostgREST returns 204 No Content.
+
+Confirmed by asking for the affected rows explicitly:
+
+```
+PATCH  ?display_name=is.null  Prefer: return=representation  -> 200  []
+DELETE ?id=not.is.null        Prefer: return=representation  -> 200  []
+```
+
+An anonymous request to delete every row in the table affected nothing.
+
+**Consequence for Stage 6's audit, which is the point of writing this down.** Reading
+status codes is not a test of RLS. A `204` on a write proves nothing either way, and
+`200 []` on a read is equally ambiguous — it means "denied" and "the table is empty" and
+"that row does not exist", identically. The only conclusive test is the one BUILD-PLAN.md
+Stage 6 demands: sign in as a real second user, query the first user's row by id, and
+show the result is zero rows. Anything less confuses "no policy let me see it" with
+"nothing was there".
+
+**Why INSERT differs:** a `WITH CHECK` violation happens on a row being created, which has
+no existing-row visibility to filter, so there is something concrete to reject.
