@@ -336,3 +336,38 @@ investigation.
 **Also confirmed in the same run:** a login attempt for an address that has never been registered
 returns `invalid_credentials` — identical to a wrong password on a real account. No enumeration
 oracle on the login form.
+
+---
+
+## `user_metadata` is user-writable — never authorise on it            (2026-09-12, verified here)
+
+The JWT that `getClaims()` returns includes `user_metadata`, and for an email signup that object
+contains `email_verified: true`. It is the obvious thing to check for prohibition P4 ("never treat
+having a session as being verified"). **It is also spoofable by the user.**
+
+Evidence, from the shipped types of `@supabase/auth-js` — `UserAttributes.data`, the payload of
+`supabase.auth.updateUser({ data })`:
+
+> "A custom data object to store the user's metadata. This maps to the `auth.users.raw_user_meta_data` column."
+
+`raw_user_meta_data` is what surfaces as `user_metadata`. `updateUser` is callable by any signed-in
+user with nothing but their own access token. So a user can write
+`updateUser({ data: { email_verified: true } })`, and Supabase will mint and **sign** a JWT
+containing it. Signature verification proves the token is authentic; it says nothing about whether
+the claim inside it is true.
+
+**Where verification actually lives:** `auth.users.email_confirmed_at`. Reachable two ways, both
+authoritative:
+
+- `supabase.auth.getUser()` — revalidates against the Auth server and returns `email_confirmed_at`
+- SQL against `auth.users`, for use inside an RLS policy
+
+**Rules for this codebase:**
+
+- `getClaims()` answers *"is there a valid session, and who is it"* — fast, local, signature-verified.
+- **It does not answer "is this user verified."** That requires `getUser()` or the database.
+- `app_metadata` is admin-only and is not user-writable; `user_metadata` is the opposite. Neither
+  should carry an authorisation flag, but only one of them is actively dangerous.
+
+This is precisely the trap BUILD-PLAN.md §7 points at: "The 'signed in, unverified' column is the
+one that gets skipped." The subtler version is checking it against a field the user controls.

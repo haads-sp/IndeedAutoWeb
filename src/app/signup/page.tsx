@@ -86,7 +86,7 @@ export default async function SignupPage({
 
       <p className="text-sm text-neutral-500">
         Already have an account?{' '}
-        <Link href="/ping" className="underline underline-offset-2">
+        <Link href="/login" className="underline underline-offset-2">
           Sign in
         </Link>
       </p>

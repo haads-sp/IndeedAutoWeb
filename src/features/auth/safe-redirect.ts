@@ -9,7 +9,7 @@
  * The rule is allow-listing by shape: same-origin absolute PATHS only.
  */
 
-export const DEFAULT_NEXT = '/ping';
+export const DEFAULT_NEXT = '/portal';
 
 export function safeNext(next: string | null | undefined): string {
   if (!next) return DEFAULT_NEXT;

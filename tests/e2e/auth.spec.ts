@@ -13,12 +13,12 @@ async function signIn(page: Page) {
   await page.getByLabel('Email').fill(EMAIL!);
   await page.getByLabel('Password').fill(PASSWORD!);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page).toHaveURL(/\/ping/);
+  await expect(page).toHaveURL(/\/portal/);
 }
 
 test.describe('anonymous access', () => {
-  test('/ping redirects a signed-out visitor to /login', async ({ page }) => {
-    await page.goto('/ping');
+  test('/portal redirects a signed-out visitor to /login', async ({ page }) => {
+    await page.goto('/portal');
     await expect(page).toHaveURL(/\/login/);
     await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
   });
@@ -96,11 +96,11 @@ test.describe('signed in', () => {
 
   test('sign in, reload, and the session survives', async ({ page }) => {
     await signIn(page);
-    await expect(page.getByText(/Signed in as/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Portal' })).toBeVisible();
 
     await page.reload();
-    await expect(page).toHaveURL(/\/ping/);
-    await expect(page.getByText(/Signed in as/)).toBeVisible();
+    await expect(page).toHaveURL(/\/portal/);
+    await expect(page.getByRole('heading', { name: 'Portal' })).toBeVisible();
   });
 
   /**
@@ -147,25 +147,47 @@ test.describe('signed in', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('a row written is read back, and a second browser cannot see it', async ({
-    page,
-    browser,
-  }) => {
+  test('the own-profile update policy works, and survives a reload', async ({ page }) => {
+    // Exercises the `profiles_update_own` RLS policy end to end. docs/ACCESS-CONTROL.md
+    // grants "own profile row: Read, update"; a permission nothing exercises is a
+    // permission nobody has tested.
     await signIn(page);
 
-    const message = `e2e-${Date.now()}`;
-    await page.getByPlaceholder('Write one row').fill(message);
-    await page.getByRole('button', { name: 'Write' }).click();
-    await expect(page.getByText(message)).toBeVisible();
+    const name = `e2e-${Date.now()}`;
+    await page.getByPlaceholder('Display name').fill(name);
+    await page.getByRole('button', { name: 'Save' }).click();
 
-    // A signed-out browser must not see it. This is a weaker claim than Stage 6's gate,
-    // which requires a real SECOND user; it is here as an early tripwire, not as a
-    // substitute for that.
+    await expect(page.getByRole('status')).toHaveText('Saved.');
+
+    // Read back from the database, not from the form's own state.
+    await page.reload();
+    await expect(page.getByPlaceholder('Display name')).toHaveValue(name);
+  });
+
+  test('a signed-out browser cannot reach the portal at all', async ({ browser }) => {
+    // Weaker than Stage 6's gate, which needs a real SECOND user querying the first
+    // user's row directly. This is an early tripwire, not a substitute for it.
     const anon = await browser.newContext();
     const anonPage = await anon.newPage();
-    await anonPage.goto('/ping');
+
+    await anonPage.goto('/portal');
     await expect(anonPage).toHaveURL(/\/login/);
-    await expect(anonPage.getByText(message)).toHaveCount(0);
+    await expect(anonPage.getByRole('heading', { name: 'Portal' })).toHaveCount(0);
+
     await anon.close();
   });
+
+  /**
+   * NOT COVERED HERE: the "signed in but unverified" redirect.
+   *
+   * BUILD-PLAN.md §7 calls that column "the one that gets skipped", so its absence is
+   * worth stating rather than leaving to be noticed. Creating an unverified user from a
+   * test means completing a real signup, which creates a permanent user in the preview
+   * project on every run and hits Supabase's built-in email rate limit — the same reason
+   * there is no signup spec above.
+   *
+   * It is covered by the Stage 5 manual gate instead, which is recorded in docs/ISSUES.md.
+   * The logic it depends on is `currentSession()`, which reads `email_confirmed_at` from
+   * auth.users rather than the forgeable `user_metadata.email_verified`.
+   */
 });

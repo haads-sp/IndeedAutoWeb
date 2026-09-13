@@ -31,7 +31,7 @@ route, which calls `verifyOtp` on the server and writes the session as an HttpOn
 <h2>Confirm your email address</h2>
 <p>Follow the link below to confirm this address and finish signing up.</p>
 <p>
-  <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=/ping">
+  <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=/portal">
     Confirm email address
   </a>
 </p>

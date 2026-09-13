@@ -167,7 +167,7 @@ describe('open-redirect guard', () => {
     expect(safeNext('/portal\nSet-Cookie: x=1')).toBe(DEFAULT_NEXT);
   });
 
-  it.each(['/portal', '/portal/settings', '/ping?tab=1'])('allows same-origin path %s', (input) => {
+  it.each(['/portal', '/portal/settings', '/portal?tab=1'])('allows same-origin path %s', (input) => {
     expect(safeNext(input)).toBe(input);
   });
 });
