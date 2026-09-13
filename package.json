@@ -10,7 +10,8 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "scan:secrets": "node scripts/secret-scan.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "check:rls": "node scripts/rls-check.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
