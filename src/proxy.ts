@@ -20,6 +20,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
+import { CORRELATION_HEADER } from '@/lib/request/correlation-header';
 import { supabasePublicConfig } from '@/lib/supabase/config';
 import { requestIsHttps, sessionCookieOptions } from '@/lib/supabase/cookie-options';
 
@@ -27,6 +28,14 @@ export async function proxy(request: NextRequest) {
   // HTTPS everywhere except local development. Vercel terminates TLS and sets
   // x-forwarded-proto; Cloudflare is not in the path (BUILD-PLAN.md §4.4).
   const isHttps = requestIsHttps(request.headers) || request.nextUrl.protocol === 'https:';
+
+  // One correlation id per request (BUILD-PLAN.md Stage 9), generated HERE and always
+  // OVERWRITING any value the client sent. A client-chosen id would let a request pose as
+  // part of someone else's trail in the logs. Set on the request before either
+  // NextResponse.next({ request }) below, so it reaches Server Components and Server Actions
+  // through both the ordinary path and the cookie-refresh path.
+  const correlationId = crypto.randomUUID();
+  request.headers.set(CORRELATION_HEADER, correlationId);
 
   let response = NextResponse.next({ request });
 
@@ -59,6 +68,10 @@ export async function proxy(request: NextRequest) {
   // getClaims(), never getSession() — BUILD-PLAN.md §4.3. Both projects publish ES256 keys
   // (docs/DOMAIN.md), so this verifies locally against a cached JWKS with no network hop.
   await supabase.auth.getClaims();
+
+  // Echoed on the response, so a person reporting a problem can quote the id and it can be
+  // matched to the server's log lines for that exact request.
+  response.headers.set(CORRELATION_HEADER, correlationId);
 
   return response;
 }

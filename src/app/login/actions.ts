@@ -5,7 +5,9 @@ import { redirect } from 'next/navigation';
 
 import { logIn, logOut } from '@/features/auth/login';
 import { safeNext } from '@/features/auth/safe-redirect';
+import { logEvent } from '@/lib/logging/event';
 import { clientIp } from '@/lib/request/client-ip';
+import { correlationId } from '@/lib/request/correlation';
 
 export async function logInAction(formData: FormData): Promise<void> {
   const email = String(formData.get('email') ?? '');
@@ -14,6 +16,15 @@ export async function logInAction(formData: FormData): Promise<void> {
 
   const ip = clientIp(await headers());
   const result = await logIn(email, password, ip);
+
+  // Before any redirect: redirect() throws, and nothing after it runs. The address is
+  // deliberately NOT logged — see src/lib/logging/event.ts.
+  logEvent({
+    event: 'auth.sign_in',
+    outcome: result.outcome,
+    correlationId: await correlationId(),
+    ip,
+  });
 
   switch (result.outcome) {
     case 'signed_in':
@@ -32,5 +43,13 @@ export async function logInAction(formData: FormData): Promise<void> {
 
 export async function logOutAction(): Promise<void> {
   await logOut();
+
+  logEvent({
+    event: 'auth.sign_out',
+    outcome: 'signed_out',
+    correlationId: await correlationId(),
+    ip: clientIp(await headers()),
+  });
+
   redirect('/login?outcome=signed_out');
 }

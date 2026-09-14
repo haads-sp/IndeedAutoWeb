@@ -46,6 +46,15 @@ const POLICIES = {
     perAddress: { attempts: 3, window: '15 m' },
     perIp: { attempts: 10, window: '10 m' },
   },
+  /**
+   * Same shape as reset, for the same reason: an allowed signup for a new address sends a
+   * real confirmation email. BUILD-PLAN.md Stage 9 names "signup" and "email sends"; this
+   * is both, because signup is the path that sends.
+   */
+  signup: {
+    perAddress: { attempts: 3, window: '15 m' },
+    perIp: { attempts: 10, window: '10 m' },
+  },
 } as const satisfies Record<string, PolicyShape>;
 
 export type RateLimitPolicy = keyof typeof POLICIES;

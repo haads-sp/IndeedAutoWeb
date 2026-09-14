@@ -21,16 +21,18 @@ const OUTCOME_MESSAGE: Record<string, string> = {
 export default async function SignupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ outcome?: string; detail?: string }>;
+  searchParams: Promise<{ outcome?: string; detail?: string; retry?: string }>;
 }) {
-  const { outcome, detail } = await searchParams;
+  const { outcome, detail, retry } = await searchParams;
 
   const notice =
     outcome === 'password_rejected'
       ? (detail ?? 'Please choose a different password.')
-      : outcome
-        ? OUTCOME_MESSAGE[outcome]
-        : null;
+      : outcome === 'rate_limited'
+        ? `Too many attempts. Try again in ${formatRetry(retry)}.`
+        : outcome
+          ? OUTCOME_MESSAGE[outcome]
+          : null;
 
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 p-8">
@@ -92,4 +94,12 @@ export default async function SignupPage({
       </p>
     </main>
   );
+}
+
+function formatRetry(retry: string | undefined): string {
+  const seconds = Number.parseInt(retry ?? '', 10);
+  if (!Number.isFinite(seconds) || seconds <= 0) return 'a few minutes';
+  if (seconds < 60) return `${seconds} seconds`;
+  const minutes = Math.ceil(seconds / 60);
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
 }

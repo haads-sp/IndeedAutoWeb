@@ -34,6 +34,27 @@ test.describe('anonymous access', () => {
     await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
   });
 
+  test('every response carries a server-generated correlation id', async ({ request }) => {
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    const first = await request.get('/login');
+    const second = await request.get('/login');
+
+    const a = first.headers()['x-correlation-id'];
+    const b = second.headers()['x-correlation-id'];
+    expect(a).toMatch(UUID);
+    expect(b).toMatch(UUID);
+    // One per REQUEST. A shared or constant id would merge unrelated requests into one trail.
+    expect(a).not.toBe(b);
+  });
+
+  test('a client-supplied correlation id is overwritten, never trusted', async ({ request }) => {
+    const forged = '00000000-0000-0000-0000-000000000000';
+    const response = await request.get('/login', { headers: { 'x-correlation-id': forged } });
+
+    expect(response.headers()['x-correlation-id']).not.toBe(forged);
+  });
+
   test('account deletion is unreachable when signed out', async ({ page }) => {
     await page.goto('/account/delete');
     await expect(page).toHaveURL(/\/login\?next=\/account\/delete/);

@@ -354,3 +354,45 @@ not claim data is "permanently removed after 30 days" — a promise nothing enfo
 document that nothing checks (BUILD-PLAN.md §8), aimed at users. **Before real users exist**, the
 purge must either be scheduled or the Stage 11 Data Deletion policy must describe the manual process
 accurately.
+
+---
+
+## The audit trail is written by triggers on Supabase's auth tables            (2026-09-14)
+
+**Decision.** `account.created`, `account.email_confirmed`, `auth.password_changed`,
+`auth.session_started` and `auth.session_ended` are written by triggers on `auth.users` and
+`auth.sessions`. Failed sign-ins and rate-limit hits are structured log events, not audit rows.
+
+**Why.** Three properties at once. *Unforgeable*: no client can write these rows; they are a side
+effect of the Auth server actually doing the thing. *Complete*: they fire whatever path caused the
+event — our pages, a direct API call, the dashboard, a future provider — where application logging
+covers only paths someone remembered. *No secret key*: the application still holds no key that
+bypasses RLS. `auth.sessions` records the IP and user agent the Auth server saw, which is
+"who, what, when, from where" in a single row.
+
+**Rejected.** Writing audit rows from the application with the secret key. It would audit failures
+durably today, at the cost of putting a `BYPASSRLS` credential into the app to do it. Failure events
+reach durable storage through Sentry in Stage 10 instead.
+
+**The line that does not move.** The application does not hold the secret key.
+
+---
+
+## Audit triggers fail open: an audit failure never blocks sign-in            (2026-09-14)
+
+**Decision.** Each auth-table trigger catches its own errors and raises a WARNING rather than
+aborting.
+
+**Why.** These triggers run inside the Auth server's own transaction. An uncaught error on
+`auth.sessions` would abort the insert — which means nobody could sign in, site-wide, because of an
+audit bug. Losing an audit row is bad; a total authentication outage caused by the audit log is
+worse.
+
+**The cost, and what pays it.** A broken trigger fails *silently*. That is answered two ways: the
+migration asserts every auth column the triggers depend on before installing them, so a wrong schema
+assumption stops the migration rather than failing at sign-in; and `scripts/audit-trail-check.mjs`
+signs in and looks for the row belonging to that exact session, so a silent failure is caught by
+checking rather than assumed away.
+
+**Rejected.** Failing closed. Correct in spirit for a security log, and the wrong trade when the
+thing being blocked is every sign-in.

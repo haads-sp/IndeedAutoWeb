@@ -13,7 +13,8 @@
     "test:e2e": "playwright test",
     "check:rls": "node scripts/rls-check.mjs",
     "check:sessions": "node scripts/session-revocation-check.mjs",
-    "check:deletion-guard": "node scripts/deletion-guard-check.mjs"
+    "check:deletion-guard": "node scripts/deletion-guard-check.mjs",
+    "check:audit": "node scripts/audit-trail-check.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

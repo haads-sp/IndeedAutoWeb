@@ -19,6 +19,8 @@ on belief is the failure mode this table exists to prevent (prohibition P7).
 
 | 5 | 2026-09-14 | `npm run check:rls` reported **ALL 12 CHECKS PASSED** on production while two of those checks tested nothing. | The admin-function probes called each function with no arguments. Two of the three have required parameters, so PostgREST matched no signature and returned `404 function not found`, which the probe accepted as a refusal. The permission check was never reached. | Probes now pass each function its real parameter names and accept only a `permission denied` response; a `404` fails. Arguments chosen so a broken guard would still do no harm. | VERIFIED |
 
+| 6 | 2026-09-14 | **Signup revealed whether an address had a confirmed account.** Two quick signups for a fresh address showed "Too many attempts"; two for an address with a confirmed account showed "Check your email" both times. Present since Stage 3, whose gate had reported signup as enumeration-safe. | Supabase rate-limits confirmation emails per address, but sends none to an address that already has a confirmed account — so that account never hits the limit. Observed on preview: second signup returned `200` for an existing confirmed address and `429 over_email_send_rate_limit` for a fresh one. `signup.ts` mapped `429` to `rate_limited`, turning that into a visible difference. Stage 3's gate tested only the existing-account path, which really is identical every time. Password reset had the same shape and was fixed in Stage 7; signup was not re-checked. | `429` now maps to `verification_sent`, identical to success. A real person is throttled by our own Upstash `signup` limit, which keys on the typed address whether or not it has an account. Unit test plus a mutation test pin the mapping. | VERIFIED |
+
 ## Notes on row 1
 
 **Why it went unnoticed.** Three separate signals all said "fine": `git push` succeeded, GitHub
@@ -143,3 +145,25 @@ meant to error, which would otherwise roll back the purge being observed.
    against zero rows would have "succeeded" and proved nothing (the lesson of row 5).
 
 **Still not done:** the purge is not scheduled. It works; nothing runs it.
+
+
+## Notes on row 6
+
+**VERIFIED 2026-09-14, end to end, with a counterfactual.** The real `/signup` Server Action was
+driven locally against the preview project, which had already been observed returning `429`. The same
+four submissions were made with the old mapping temporarily restored, and then with the fix:
+
+```
+                           existing confirmed account     fresh address
+WITHOUT the fix            /verify-email?state=sent       /signup?outcome=rate_limited&retry=60
+WITH the fix               /verify-email?state=sent       /verify-email?state=sent
+```
+
+The first row is the leak, visible in the product; the second is the fix. The file on disk was
+confirmed to hold the fixed mapping afterwards, and the unit tests re-run green.
+
+**The general lesson, which this repository has now learned twice.** Any Supabase response that
+depends on whether an email is actually sent — which depends on whether the account exists — can
+leak account existence if surfaced. When a fix for one flow addresses a pattern, every other flow
+with that shape must be re-checked in the same change. Reset got the fix in Stage 7; signup, with
+the identical shape, waited until Stage 9.

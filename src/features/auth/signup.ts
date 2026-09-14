@@ -28,14 +28,16 @@ import 'server-only';
 import { createClient } from '@/lib/supabase/server';
 import { absoluteUrl } from '@/lib/env/site-url';
 
-import { passwordRejectionMessage, validatePassword } from './password';
+import { passwordRejectionMessage, validatePassword, validatePasswordShape } from './password';
+import { checkRateLimit } from './rate-limit';
 
 export type SignupOutcome =
   /** Returned whether or not the address was already registered. See above. */
   | { outcome: 'verification_sent' }
   | { outcome: 'password_rejected'; message: string }
   | { outcome: 'invalid_email' }
-  | { outcome: 'rate_limited' }
+  /** OUR limit only — keyed on the typed address, account or not. Never Supabase's. */
+  | { outcome: 'rate_limited'; retryAfterSeconds: number }
   | { outcome: 'unavailable' };
 
 /** Where the link in the email lands. The route that consumes it is src/app/auth/confirm. */
@@ -46,11 +48,31 @@ function looksLikeEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && value.length <= 254;
 }
 
-export async function signUp(email: string, password: string): Promise<SignupOutcome> {
+export async function signUp(
+  email: string,
+  password: string,
+  ip: string | null,
+): Promise<SignupOutcome> {
   const trimmed = email.trim().toLowerCase();
 
   if (!looksLikeEmail(trimmed)) {
     return { outcome: 'invalid_email' };
+  }
+
+  // The cheap, local length check runs BEFORE the limiter, so someone correcting a
+  // too-short password does not spend their attempts on a typo.
+  const shape = validatePasswordShape(password);
+  if (!shape.ok) {
+    return { outcome: 'password_rejected', message: passwordRejectionMessage(shape.rejection) };
+  }
+
+  // Then the limiter, BEFORE anything that leaves this process: the breach lookup and
+  // Supabase. Every allowed signup for a new address sends a real email to a real inbox.
+  // Keyed on the address as typed, so it behaves identically for registered and
+  // unregistered addresses and cannot itself become an oracle.
+  const decision = await checkRateLimit('signup', trimmed, ip);
+  if (!decision.allowed) {
+    return { outcome: 'rate_limited', retryAfterSeconds: decision.retryAfterSeconds };
   }
 
   // Password is validated BEFORE calling Supabase, so a rejected password costs no
@@ -77,8 +99,16 @@ export async function signUp(email: string, password: string): Promise<SignupOut
     return { outcome: 'verification_sent' };
   }
 
+  // docs/ISSUES.md row 6. Supabase's 429 is NOT surfaced as rate_limited. Supabase applies
+  // a per-address cooldown before sending another confirmation email, but it sends nothing
+  // for an address that already has a confirmed account — so that account never hits the
+  // cooldown. Observed on preview: a second quick signup returned 200 for an existing
+  // confirmed address and 429 over_email_send_rate_limit for a fresh one. Mapping 429 to
+  // "too many attempts" turned that into a visible difference: an enumeration oracle.
+  // It gets the identical success outcome instead. Our own limit, above, is what tells a
+  // real user to slow down.
   if (error.status === 429) {
-    return { outcome: 'rate_limited' };
+    return { outcome: 'verification_sent' };
   }
 
   // Supabase surfaces this only when email confirmation is disabled. Mapping it to the
