@@ -209,9 +209,10 @@ async function main() {
   // deleted_at. Once deletion reads that column, writing it directly would skip
   // re-authentication and the audit record, and would let a deleted user restore themselves.
   //
-  // The probe sets deleted_at to null, which it already is: no data changes, but it still
-  // requires UPDATE privilege on that column. FAILS before the Stage 8 migration (the
-  // privilege exists) and PASSES after it (only display_name is grantable).
+  // The probe sets deleted_at to null, which it already is, so deleted_at does not change —
+  // though if the write is permitted, the updated_at trigger still bumps that timestamp. It
+  // requires UPDATE privilege on the column either way. Observed FAILING before the Stage 8
+  // migration (200 with the row) and PASSING after it (403 permission denied).
   const column = await asUser(b.token, `/rest/v1/profiles?id=eq.${b.userId}`, {
     method: 'PATCH',
     body: JSON.stringify({ deleted_at: null }),
@@ -224,17 +225,46 @@ async function main() {
     column.status === 401 || column.status === 403,
   );
 
-  // Admin-only functions must not be callable by a signed-in user. Before the Stage 8
-  // migration they do not exist yet, so "not found" also passes; the claim being tested is
-  // "not callable by a client", which both satisfy.
-  for (const fn of ['admin_purge_deleted_accounts', 'admin_restore_account', 'write_audit']) {
-    const call = await asUser(b.token, `/rest/v1/rpc/${fn}`, { method: 'POST', body: '{}' });
+  // Admin-only functions must not be callable by a signed-in user.
+  //
+  // Each is called with its REAL parameter names. An earlier version called them with no
+  // arguments, and two of the three have required parameters — so PostgREST matched no
+  // signature, returned 404, and the check passed WITHOUT EVER REACHING THE PERMISSION
+  // CHECK. It would have passed even if user B could call them. Only 401/403 counts now;
+  // a 404 means the probe tested nothing, and FAILS.
+  //
+  // Arguments are chosen so a BROKEN guard would still do no harm:
+  //   - purge with a 100-year grace period matches no account
+  //   - restore of B's own, non-deleted account updates nothing
+  //   - write_audit with an action outside the CHECK constraint cannot insert a row —
+  //     and if the guard were broken it would fail with a constraint error (400), which is
+  //     distinguishable from, and not counted as, a permission refusal.
+  const adminProbes = [
+    { fn: 'admin_purge_deleted_accounts', args: { p_older_than: '100 years' } },
+    { fn: 'admin_restore_account', args: { p_user_id: b.userId } },
+    {
+      fn: 'write_audit',
+      args: {
+        p_action: 'probe.never.valid',
+        p_actor: null,
+        p_subject: b.userId,
+        p_ip: null,
+        p_user_agent: null,
+      },
+    },
+  ];
+
+  for (const { fn, args } of adminProbes) {
+    const call = await asUser(b.token, `/rest/v1/rpc/${fn}`, {
+      method: 'POST',
+      body: JSON.stringify(args),
+    });
     report(
       `user B calls the admin-only function ${fn}`,
-      `POST /rest/v1/rpc/${fn}   (as B)`,
+      `POST /rest/v1/rpc/${fn} ${JSON.stringify(args)}   (as B)`,
       call,
-      'refused, or not present',
-      call.status === 401 || call.status === 403 || call.status === 404,
+      'refused with permission denied - a 404 means the probe missed the function and proves nothing',
+      (call.status === 401 || call.status === 403) && /permission denied/i.test(call.body),
     );
   }
 
@@ -247,8 +277,8 @@ async function main() {
     'user B forges an audit_log entry (Stage 8)',
     'POST /rest/v1/audit_log   (as B)',
     forge,
-    'refused, or not present',
-    forge.status === 401 || forge.status === 403 || forge.status === 404,
+    'refused with permission denied - a 404 means the table is missing and proves nothing',
+    (forge.status === 401 || forge.status === 403) && /permission denied/i.test(forge.body),
   );
 
   // And nothing above actually touched A's row.
