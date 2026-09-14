@@ -15,6 +15,8 @@ on belief is the failure mode this table exists to prevent (prohibition P7).
 
 | 3 | 2026-09-13 | `main` went red on the E2E workflow. The own-profile update spec failed with the user-facing message "Could not save that. Please try again." | The Stage 5 code was pushed BEFORE the migration creating `profiles` had been applied to the preview project, which is what E2E runs against. The table did not exist, so the update failed. Nothing was wrong with the code: the next commit, pushed after `supabase db push`, was green. | Recorded the ordering rule as a recipe in docs/EXTENDING.md: apply migrations to preview, then production, and only then push the code. | VERIFIED |
 
+| 4 | 2026-09-14 | The E2E spec "session cookies are HttpOnly, SameSite=Lax…" failed on its first attempt and passed on retry. The workflow still showed **success**: Playwright reported it only as `##[notice] 1 flaky`, which turns nothing red. | Inside the shared `signIn()` helper: after clicking "Sign in" the page stayed on **bare** `/login` for the full 5s timeout — no `?outcome=`, so the Server Action never redirected, and the server logged no error. That rules out a wrong password and a rate limit, both of which redirect with an outcome. **Root cause not proven.** The two plausible causes are a click landing while the page was still hydrating, and a slow first submission on a cold runner. First genuine flake in 8 runs. | Addressed both candidates rather than guessing between them: `waitForLoadState('networkidle')` before interacting, and a 15s timeout on the post-submit redirect. Separately, `failOnFlakyTests` is now on in CI, so a pass-on-retry fails the run instead of hiding behind a notice. | FIXED? |
+
 ## Notes on row 1
 
 **Why it went unnoticed.** Three separate signals all said "fine": `git push` succeeded, GitHub
@@ -73,3 +75,16 @@ only of user-visible behaviour cannot detect a control that is invisible until i
 **VERIFIED 2026-09-12.** After a fresh sign-out and sign-in on production, the DevTools cookie
 table shows the `sb-` cookies with HttpOnly ticked, Secure ticked, and SameSite Lax. Confirmed by
 observing the browser, which is the only place this was ever visible.
+
+
+## Notes on row 4
+
+**Why it stays FIXED?, and what would move it.** The fix targets likely causes; it was not
+confirmed against a reproduction, because the flake could not be reproduced on demand. It becomes
+VERIFIED only after a meaningful run of CI with `failOnFlakyTests` on and **no** flaky tests —
+evidence that the symptom stopped, rather than an argument that it should have.
+
+**The bigger fix is the config line, not the helper.** A retry that silently turns a failure
+green is what lets a suite decay: each flake is individually harmless, and together they train
+everyone to re-run red builds without reading them. Making flakiness fail the run keeps the suite
+honest regardless of which cause this particular flake had.

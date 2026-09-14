@@ -26,6 +26,12 @@ export default defineConfig({
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
+  // A test that fails and then passes on retry FAILS THE RUN. Retries stay on so a flake
+  // produces a trace and a screenshot to diagnose, but they no longer turn it green.
+  // Without this, Playwright reports "1 flaky" as a GitHub notice while the workflow
+  // shows success — flakiness recorded somewhere nobody reads, which is how a suite rots
+  // into one people learn to ignore. See docs/ISSUES.md row 4.
+  failOnFlakyTests: !!process.env.CI,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
 
   use: {
