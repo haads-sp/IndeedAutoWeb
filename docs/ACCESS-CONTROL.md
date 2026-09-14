@@ -1,8 +1,7 @@
 # Access control
 
 This matrix is reproduced verbatim from `docs/BUILD-PLAN.md` §7. It is the specification, not a
-summary of the implementation — nothing in it is enforced yet. Stages 5 and 6 build it, and Stage 6
-is where it becomes real, because that is the stage that writes the RLS policies.
+summary of the implementation. What is actually enforced, and by what, is in the Status section below.
 
 **Every row must be an RLS policy, not only a route guard.**
 
@@ -25,17 +24,17 @@ presence of a session lets them through.
 
 ## Status
 
-As of Stage 6 (2026-09-14). This tracks the truth rather than leaving the matrix looking like a
+As of Stage 8 (2026-09-14). This tracks the truth rather than leaving the matrix looking like a
 description of working software. A row whose only enforcer is a redirect is not done — that is
 prohibition P2.
 
 | Row | Implemented | Enforced by | Evidence |
 |---|---|---|---|
 | Landing, legal pages | Stub only | No data to protect | `/` is a Stage 11 placeholder |
-| Signup, login, reset | Signup + login; **reset is Stage 7** | Routes; no data access | E2E suite |
+| Signup, login, reset | Yes (reset: Stage 7) | Routes; no data access | E2E suite; Stage 7 gate |
 | Verification pending page | Yes | Route | Stage 5 browser gate |
 | `/portal` | Yes | Route redirects **plus** RLS on the data it reads | Stage 5 browser gate; E2E |
-| **Own profile row** | **Yes** | **RLS** `profiles_select_own`, `profiles_update_own` + GRANT `select, update` to `authenticated` only | **Stage 6 gate, below** |
+| **Own profile row** | **Yes** | **RLS** `profiles_select_own`, `profiles_update_own` (each requiring a live session and `deleted_at is null`) + GRANT `select` and column-level `update (display_name)` to `authenticated` only | **Stage 6 gate, below** |
 | **Any other profile row** | **Denied to everyone** | **RLS** (no policy matches) **and** no admin role exists | **Stage 6 gate, below** |
 | Audit log | **Yes** (minimal, Stage 8) | **RLS** own entries only, verified + live session; append-only **triggers** for every role; no client write path | Stage 8 gate; `rls-check.mjs` forge probe |
 | Admin routes | **No** — no admin role exists | — | P6: role changes are manual SQL |
