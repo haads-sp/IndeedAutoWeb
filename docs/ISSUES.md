@@ -17,6 +17,8 @@ on belief is the failure mode this table exists to prevent (prohibition P7).
 
 | 4 | 2026-09-14 | The E2E spec "session cookies are HttpOnly, SameSite=Lax…" failed on its first attempt and passed on retry. The workflow still showed **success**: Playwright reported it only as `##[notice] 1 flaky`, which turns nothing red. | Inside the shared `signIn()` helper: after clicking "Sign in" the page stayed on **bare** `/login` for the full 5s timeout — no `?outcome=`, so the Server Action never redirected, and the server logged no error. That rules out a wrong password and a rate limit, both of which redirect with an outcome. **Root cause not proven.** The two plausible causes are a click landing while the page was still hydrating, and a slow first submission on a cold runner. First genuine flake in 8 runs. | Addressed both candidates rather than guessing between them: `waitForLoadState('networkidle')` before interacting, and a 15s timeout on the post-submit redirect. Separately, `failOnFlakyTests` is now on in CI, so a pass-on-retry fails the run instead of hiding behind a notice. | FIXED? |
 
+| 5 | 2026-09-14 | `npm run check:rls` reported **ALL 12 CHECKS PASSED** on production while two of those checks tested nothing. | The admin-function probes called each function with no arguments. Two of the three have required parameters, so PostgREST matched no signature and returned `404 function not found`, which the probe accepted as a refusal. The permission check was never reached. | Probes now pass each function its real parameter names and accept only a `permission denied` response; a `404` fails. Arguments chosen so a broken guard would still do no harm. | VERIFIED |
+
 ## Notes on row 1
 
 **Why it went unnoticed.** Three separate signals all said "fine": `git push` succeeded, GitHub
@@ -88,3 +90,16 @@ evidence that the symptom stopped, rather than an argument that it should have.
 green is what lets a suite decay: each flake is individually harmless, and together they train
 everyone to re-run red builds without reading them. Making flakiness fail the run keeps the suite
 honest regardless of which cause this particular flake had.
+
+
+## Notes on row 5
+
+**VERIFIED 2026-09-14.** Re-run on production after the fix: `admin_purge_deleted_accounts`,
+`admin_restore_account` and `write_audit` each returned `403 permission denied for function`. Before
+asking for that re-run, the corrected arguments were checked as an anonymous caller, where no-argument
+calls to the two affected functions returned 404 and real-argument calls returned 401 permission
+denied — confirming both the diagnosis and the fix.
+
+**The general shape, and why it matters beyond this script.** A security check that cannot fail is
+not a check. Every check in this repository that passes on a refusal needs a way to tell "refused"
+apart from "never asked" — the CONTROL rows in both check scripts exist for the same reason.

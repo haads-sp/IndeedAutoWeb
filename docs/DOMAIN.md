@@ -512,3 +512,58 @@ that "PostgREST checks sessions now", that counterfactual is the test to run fir
 
 **For every future table:** its policies must include `(select public.session_is_active())`, or
 revoked sessions keep read access to it until their tokens expire.
+
+---
+
+## RLS restricts rows, never columns — a table-level UPDATE grant writes every column            (2026-09-14, verified here, before and after)
+
+A row-level policy like `using (auth.uid() = id)` decides **which rows** a user may update. It has no
+opinion about **which columns**. With `grant update on public.profiles to authenticated` — table
+level, granted in Stage 6 — a signed-in user could write every column of their own row, including
+`deleted_at`.
+
+That was latent while nothing read `deleted_at`. Stage 8 made it access control, at which point the
+same privilege would have let a user delete their own account with no re-authentication and no
+audit record, or clear `deleted_at` to undo a deletion.
+
+**Observed on production, same probe, same user, either side of the migration** — a PATCH setting
+`deleted_at` to `null`, its existing value, so the column itself never changes:
+
+```
+BEFORE  PATCH /rest/v1/profiles?id=eq.bf00f5b8-…  {"deleted_at":null}
+        200 [{"id":"bf00f5b8-…","display_name":"nothaad", … ,"deleted_at":null}]
+
+AFTER   PATCH /rest/v1/profiles?id=eq.bf00f5b8-…  {"deleted_at":null}
+        403 "permission denied for table profiles"
+```
+
+**The fix:** `grant update (display_name) on public.profiles to authenticated`. Every table that gains
+a column with access-control meaning needs its grant re-read, because the grant written before that
+column mattered will not have anticipated it.
+
+---
+
+## A probe that misses the function passes — call RPCs with their real parameters            (2026-09-14, verified here)
+
+`scripts/rls-check.mjs` reported every check passing while two of them tested nothing. It called
+admin-only functions with **no arguments**. PostgREST resolves a function by name **and** by the
+names of the arguments supplied, so:
+
+```
+admin_purge_deleted_accounts  (its only parameter has a default)   no args -> 401 permission denied
+admin_restore_account         (p_user_id required)                  no args -> 404 function not found
+write_audit                   (five required parameters)           no args -> 404 function not found
+```
+
+A `404` means the request **never reached the permission check**. The probe counted it as "refused",
+so it would have passed even if the user could call the function. With real parameter names, all
+three returned `permission denied`.
+
+**Rule for every future probe of a function:** supply its real parameters, and accept only
+`permission denied` as a refusal. A `404` is a failed probe, not a successful defence.
+
+**Also confirmed in the same session:** a Supabase password sign-in records its `amr` claim as
+`[{"method":"password","timestamp":1789367458}]` — an array of objects with a **numeric** timestamp.
+`soft_delete_own_account()`'s re-authentication check depends on exactly that shape, and
+`scripts/deletion-guard-check.mjs` observed the guard refusing a 330-second-old sign-in with
+`403 "recent re-authentication required"` while the same token remained otherwise valid.

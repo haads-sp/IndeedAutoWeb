@@ -34,6 +34,11 @@ test.describe('anonymous access', () => {
     await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
   });
 
+  test('account deletion is unreachable when signed out', async ({ page }) => {
+    await page.goto('/account/delete');
+    await expect(page).toHaveURL(/\/login\?next=\/account\/delete/);
+  });
+
   test('/signup is reachable and states the password rule', async ({ page }) => {
     await page.goto('/signup');
     await expect(page.getByRole('heading', { name: 'Create an account' })).toBeVisible();
@@ -127,11 +132,6 @@ test.describe('password reset (anonymous)', () => {
     await expect(page).toHaveURL(/\/forgot-password\?outcome=link_expired/);
     await expect(page.getByText(/expired or has already been used/i)).toBeVisible();
     await expect(page.getByText(/sign up again/i)).toHaveCount(0);
-  });
-
-  test('account deletion is unreachable when signed out', async ({ page }) => {
-    await page.goto('/account/delete');
-    await expect(page).toHaveURL(/\/login\?next=\/account\/delete/);
   });
 
   test('the reset form is unreachable without a recovery session', async ({ page }) => {
