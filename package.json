@@ -17,6 +17,7 @@
     "check:audit": "node scripts/audit-trail-check.mjs"
   },
   "dependencies": {
+    "@sentry/nextjs": "^10.74.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.116.0",
     "@upstash/ratelimit": "^2.0.8",

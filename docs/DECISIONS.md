@@ -396,3 +396,98 @@ checking rather than assumed away.
 
 **Rejected.** Failing closed. Correct in spirit for a security log, and the wrong trade when the
 thing being blocked is every sign-in.
+
+---
+
+## Sentry runs on the server only, and its DSN never reaches a page            (2026-09-14)
+
+**Decision.** `@sentry/nextjs` is initialised in the Node.js server runtime only
+(`src/sentry.server.config.ts`, started from `src/instrumentation.ts`). There is no
+`instrumentation-client.ts`, no browser SDK, and the DSN is `SENTRY_DSN`, a server variable, not
+`NEXT_PUBLIC_SENTRY_DSN`.
+
+**Why.** This application has no client-side code of its own: every form posts to a Server Action,
+so every failure worth reporting happens on the server, where `onRequestError` captures it. A browser
+SDK would add JavaScript to every page, need a looser Content-Security-Policy (`connect-src` to
+Sentry), and run in the place where URL tokens and cookies are easiest to leak. And a DSN in page
+source lets anyone send junk events against the error quota. `withSentryConfig` would still publish
+part of it, through the `<meta name="baggage">` tag it switches on (`public_key`, `org_id`), so
+`next.config.ts` switches that back off.
+
+**Rejected.** The Sentry wizard's default of browser plus server plus edge. Browser-only errors
+(a hydration failure, say) are not captured; this is a real gap, accepted while the app ships no
+client code of its own. Revisit the day a `'use client'` component does real work.
+
+**The line that does not move.** Nothing Sentry-related is sent to, or readable from, the browser.
+
+---
+
+## Sentry collects nothing by default, and scrubs anyway            (2026-09-14)
+
+**Decision.** Every `dataCollection` category in `src/lib/observability/sentry-options.ts` is set
+explicitly to off: cookies, request and response headers, HTTP bodies (`[]`), URL query parameters,
+database query data, stack-frame local variables and user info. Performance tracing is off
+(`tracesSampleRate: 0`). On top of that, `beforeSend`, `beforeBreadcrumb` and `beforeSendLog` run every
+payload through `redactDeep()`, strip query strings from `request.url` and Next's `request_path`, and
+delete request cookies, headers, body and user wholesale.
+
+**Why.** In 10.x the defaults COLLECT almost all of it (docs/DOMAIN.md). For this app that means
+session JWTs from cookies, passwords from signup and login bodies, single-use tokens from
+`/auth/confirm?token_hash=`, and in a crash a local variable named `password`. The scrubber exists
+because the first layer is configuration, and configuration drifts with SDK versions. Verified
+against the SDK's REAL payload, not only unit tests: a local listener stood in for Sentry, and an
+error forced with a fake session cookie, bearer token, forwarded IP, query-string token and email in
+its message arrived with none of them (docs/DOMAIN.md).
+
+**Refused cross-site Server Actions are dropped, not reported.** Next.js refuses one by throwing
+`Invalid Server Actions request.`, and that is CSRF protection working. Reporting every attempt would
+spend the quota on attacks that already failed and teach people to ignore Sentry.
+
+**Rejected.** Relying on `sendDefaultPii: false` (deprecated in 10.x, and it never governed most of
+these categories), and a deny-list of local-variable names (minification renames them).
+
+**The line that does not move.** No token, password, cookie, email address or IP address in anything
+sent to Sentry. The IP stays in the short-lived platform log line only.
+
+---
+
+## An email link is spent by pressing a button, not by opening it            (2026-09-14)
+
+**Decision.** `GET /auth/confirm` renders a page with a button and changes nothing. The button posts a
+Server Action, which is the only thing that calls `verifyOtp`. This replaces the Stage 3 route
+handler, which consumed the token on GET. The email templates are unchanged.
+
+**Why.** Two failures of a state-changing GET. *Mail scanners*: corporate gateways and some mail
+providers fetch every link in a message before the person sees it, spending the single-use token, so
+the person's own click fails as "expired". *Login CSRF* (BUILD-PLAN.md Stage 10, "CSRF protection on
+state-changing routes"): any page could redirect a visitor to a link carrying the ATTACKER's token and
+sign them into the attacker's account, where whatever they type next is the attacker's to read. A
+Server Action POST is refused by Next.js unless its Origin is this site; a navigation alone now does
+nothing.
+
+**Rejected.** Consuming on GET and relying on `SameSite=Lax`. Lax cookies are still sent, and set, on
+a top-level navigation, which is exactly what a malicious link or redirect is.
+
+**The line that does not move.** No GET request changes authentication state.
+
+---
+
+## A nonce-based Content-Security-Policy, so every page renders per request            (2026-09-14)
+
+**Decision.** Pages get a strict policy with a fresh nonce per request and `'strict-dynamic'`, built
+in `src/lib/security/csp.ts` and set in `src/proxy.ts`. The root layout awaits `connection()`, so
+every route, the 404 page included, is rendered per request. `/api` responses get a static
+`default-src 'none'` from `next.config.ts`. No `'unsafe-inline'` for scripts or styles in production.
+
+**Why.** It is the policy under which an injected `<script>` does not run. Next.js stamps the nonce onto
+its own scripts only while rendering a request, so a page prerendered at build time would ship
+scripts with no nonce and be blocked. Every page here already depended on the session, so rendering
+per request costs close to nothing.
+
+**Rejected.** A static policy in `next.config.ts` with `'unsafe-inline'` (it does not stop injected
+inline script, which is the main thing a CSP is for), and Next's Subresource Integrity mode (marked
+experimental, and its own guide lists "Cannot handle dynamically generated scripts" as a limitation).
+
+**The line that does not move.** No production policy with `'unsafe-inline'` or `'unsafe-eval'` for
+scripts. Inline `style="…"` attributes in server-rendered markup are blocked too, so components use
+classes.

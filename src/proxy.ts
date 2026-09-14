@@ -20,7 +20,9 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
+import { isDevelopment } from '@/lib/env/deployment';
 import { CORRELATION_HEADER } from '@/lib/request/correlation-header';
+import { contentSecurityPolicy, createNonce } from '@/lib/security/csp';
 import { supabasePublicConfig } from '@/lib/supabase/config';
 import { requestIsHttps, sessionCookieOptions } from '@/lib/supabase/cookie-options';
 
@@ -36,6 +38,18 @@ export async function proxy(request: NextRequest) {
   // through both the ordinary path and the cookie-refresh path.
   const correlationId = crypto.randomUUID();
   request.headers.set(CORRELATION_HEADER, correlationId);
+
+  // Content-Security-Policy with a per-request nonce (BUILD-PLAN.md Stage 10). It must be set
+  // on the REQUEST: Next.js reads the nonce out of the request's CSP header during rendering
+  // and stamps it onto its own scripts. /api routes are skipped — next.config.ts gives them a
+  // stricter static policy, and a second CSP would be enforced as an intersection, not ignored.
+  const isApi = request.nextUrl.pathname.startsWith('/api/');
+  const csp = isApi
+    ? null
+    : contentSecurityPolicy(createNonce(), { isDevelopment: isDevelopment(), isHttps });
+  if (csp) {
+    request.headers.set('Content-Security-Policy', csp);
+  }
 
   let response = NextResponse.next({ request });
 
@@ -72,6 +86,16 @@ export async function proxy(request: NextRequest) {
   // Echoed on the response, so a person reporting a problem can quote the id and it can be
   // matched to the server's log lines for that exact request.
   response.headers.set(CORRELATION_HEADER, correlationId);
+
+  // Set on the RESPONSE last, after any cookie refresh has replaced `response` above.
+  //
+  // The SAME string as the request header, never a second one. Under `next start`, Next's
+  // router copies every proxy response header onto the request as well, so the response value
+  // silently decides which nonce gets rendered — and a mismatch there is invisible locally and
+  // in E2E, yet may break every script behind a router that does not copy (docs/DOMAIN.md).
+  if (csp) {
+    response.headers.set('Content-Security-Policy', csp);
+  }
 
   return response;
 }

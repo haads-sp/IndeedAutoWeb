@@ -39,3 +39,8 @@ export function deploymentInfo(): DeploymentInfo {
     builtAt: BUILT_AT,
   };
 }
+
+/** True under `next dev`. Read here because src/lib/env is the only place that reads process.env. */
+export function isDevelopment(): boolean {
+  return process.env.NODE_ENV === 'development';
+}

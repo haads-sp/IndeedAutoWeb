@@ -22,8 +22,10 @@ quietly drift out of date without one of them noticing.
 | `NEXT_PUBLIC_SITE_URL` | Absolute origin of this deployment, e.g. `https://example.com`. Used to build auth redirect URLs. | Vercel, per environment. Differs between production and preview. | **Yes** |
 | `UPSTASH_REDIS_REST_URL` | Upstash Redis REST endpoint, for rate limiting. | Upstash console. Vercel environment variables. | **No** |
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash REST token. Grants read and write to that Redis. | Upstash console. Vercel environment variables. | **No** |
-| `NEXT_PUBLIC_SENTRY_DSN` | Sentry ingest endpoint. Public **by design** — a DSN is a write-only ingest key, not a credential. It permits sending events, not reading them. | Sentry project settings. | **Yes** |
-| `SENTRY_AUTH_TOKEN` | Uploads source maps at build time. Grants API access to the Sentry org. | Sentry → auth tokens. Vercel and GitHub Actions secrets only. Build-time only; never read at runtime. | **No** |
+| `SENTRY_DSN` | Sentry ingest endpoint. Not a credential: it permits sending events, not reading them. Kept **server-only** anyway, because there is no browser Sentry to use it, and a DSN in page source lets anyone spend the error quota on junk (docs/DECISIONS.md). Optional: unset means no Sentry, and `/api/version` reports `errorReporting: "not-configured"`. | Sentry → project → Settings → Client Keys (DSN). Vercel. | **No** |
+| `SENTRY_AUTH_TOKEN` | Uploads server source maps at build time, so stack traces in Sentry point at `src/` instead of minified chunks. Grants API access to the Sentry org. | Sentry → Settings → Auth Tokens. Vercel only. Build-time only; never read at runtime. | **No** |
+| `SENTRY_ORG` | Sentry organisation slug, for the source map upload. Not secret. | The Sentry URL: `<org>.sentry.io`. Vercel. | **No** |
+| `SENTRY_PROJECT` | Sentry project slug, for the source map upload. Not secret. | Sentry → project settings. Vercel. | **No** |
 
 ## Deliberately not an environment variable
 
@@ -85,6 +87,7 @@ Current state, for reference:
 | `NEXT_PUBLIC_SITE_URL` | Config | Vercel, per environment |
 | `SUPABASE_SECRET_KEY` | Secret | Not set — nothing needs `BYPASSRLS` yet |
 | `UPSTASH_REDIS_REST_URL` / `_TOKEN` | Secret | Not set — Stage 9 |
-| `SENTRY_AUTH_TOKEN` | Secret | Not set — Stage 10 |
-| `NEXT_PUBLIC_SENTRY_DSN` | Config | Not set — Stage 10 |
+| `SENTRY_DSN` | Secret | Vercel, Production and Preview (events are tagged with the Vercel environment) |
+| `SENTRY_AUTH_TOKEN` | Secret | Vercel, Production and Preview |
+| `SENTRY_ORG` / `SENTRY_PROJECT` | Secret | Vercel, Production and Preview. Not secret values, but the rule above is mechanical, and they are not browser-visible. |
 | Resend API key | n/a | Supabase dashboard SMTP settings only. Never a Vercel variable, because this application never calls Resend. |

@@ -1,31 +1,10 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+
+import { PASSWORD, haveAccount, signIn } from './helpers';
 
 /**
  * The Stage 2–4 gates, as tests that run on every push.
  */
-
-const EMAIL = process.env.E2E_EMAIL;
-const PASSWORD = process.env.E2E_PASSWORD;
-const haveAccount = Boolean(EMAIL && PASSWORD);
-
-async function signIn(page: Page) {
-  await page.goto('/login');
-  // Let the page finish loading its scripts before interacting. docs/ISSUES.md row 4: one
-  // run clicked "Sign in" and stayed on bare /login for the full 5s — no ?outcome=, so the
-  // action never redirected at all, and the server logged no error. The most likely cause
-  // is a click landing mid-hydration; this removes that window.
-  await page.waitForLoadState('networkidle');
-
-  await page.getByLabel('Email').fill(EMAIL!);
-  await page.getByLabel('Password').fill(PASSWORD!);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-
-  // Longer than the 5s default. Sign-in makes three network round trips — the Server
-  // Action, Supabase's token endpoint, then /portal's getUser() and profile read — and a
-  // cold CI runner can take longer than the default on the first one. The other candidate
-  // cause of row 4, so it is addressed too rather than guessed between.
-  await expect(page).toHaveURL(/\/portal/, { timeout: 15_000 });
-}
 
 test.describe('anonymous access', () => {
   test('/portal redirects a signed-out visitor to /login', async ({ page }) => {
@@ -66,15 +45,44 @@ test.describe('anonymous access', () => {
     await expect(page.getByText(/at least 12 characters/i)).toBeVisible();
   });
 
-  test('an invalid confirmation token is rejected, not passed through', async ({ page }) => {
+  test('opening a confirmation link spends nothing: it waits for a button', async ({ page }) => {
+    // Stage 10. A mail scanner that fetches the link, or a page that redirects someone to it,
+    // must not be able to spend the token or sign anyone in. See src/features/auth/confirm-link.ts.
+    await page.goto('/auth/confirm?token_hash=not-a-real-token&type=email&next=/portal');
+
+    await expect(page).toHaveURL(/\/auth\/confirm\?/);
+    await expect(page.getByRole('heading', { name: 'Confirm your email' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Confirm email' })).toBeVisible();
+  });
+
+  test('an invalid confirmation token is rejected when the button is pressed', async ({ page }) => {
     await page.goto('/auth/confirm?token_hash=not-a-real-token&type=email');
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: 'Confirm email' }).click();
+
+    await expect(page).toHaveURL(/\/verify-email\?state=invalid/);
+  });
+
+  test('a malformed link is refused before any button is shown', async ({ page }) => {
+    await page.goto('/auth/confirm?type=email');
     await expect(page).toHaveURL(/\/verify-email\?state=invalid/);
   });
 
   test('an open redirect in `next` is refused even with a valid-looking link', async ({ page }) => {
     await page.goto('/auth/confirm?token_hash=x&type=email&next=//example.com');
-    // Must land on our own origin, never example.com.
-    await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:\d+\//);
+
+    // The page never carries the foreign destination into its form...
+    await expect(page.locator('input[name="next"]')).toHaveValue('/portal');
+
+    // ...and a form edited to carry it anyway still lands on our own origin. With a fake token
+    // the server never reaches its success redirect, so the re-check of `next` on THAT path is
+    // proven in src/features/auth/confirm-link.test.ts, not here.
+    await page.locator('input[name="next"]').evaluate((el: HTMLInputElement) => {
+      el.value = '//example.com';
+    });
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: 'Confirm email' }).click();
+    await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:\d+\/verify-email/);
   });
 
   test('a wrong password and an unknown address are indistinguishable', async ({ page }) => {
@@ -150,6 +158,10 @@ test.describe('password reset (anonymous)', () => {
     // Before this, every failed link landed on /verify-email, which told a user with a
     // perfectly good account to "sign up again with the same address".
     await page.goto('/auth/confirm?token_hash=already-used-or-expired&type=recovery&next=/reset-password');
+    await expect(page.getByRole('heading', { name: 'Reset your password' })).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: 'Continue' }).click();
+
     await expect(page).toHaveURL(/\/forgot-password\?outcome=link_expired/);
     await expect(page.getByText(/expired or has already been used/i)).toBeVisible();
     await expect(page.getByText(/sign up again/i)).toHaveCount(0);

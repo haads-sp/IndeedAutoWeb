@@ -24,7 +24,7 @@ presence of a session lets them through.
 
 ## Status
 
-As of Stage 9 (2026-09-14). This tracks the truth rather than leaving the matrix looking like a
+As of Stage 10 (2026-09-14). This tracks the truth rather than leaving the matrix looking like a
 description of working software. A row whose only enforcer is a redirect is not done — that is
 prohibition P2.
 
@@ -32,6 +32,7 @@ prohibition P2.
 |---|---|---|---|
 | Landing, legal pages | Stub only | No data to protect | `/` is a Stage 11 placeholder |
 | Signup, login, reset | Yes (reset: Stage 7) | Routes; no data access | E2E suite; Stage 7 gate |
+| Email links (`/auth/confirm`) | Yes (two-step since Stage 10) | Opening the link changes nothing. Only the button's Server Action calls `verifyOtp`, and Next.js refuses that action from another origin. Every field is re-validated server-side. | E2E: the link waits for a button, the tampered form, a cross-site action refused (`security.spec.ts`) |
 | Verification pending page | Yes | Route | Stage 5 browser gate |
 | `/portal` | Yes | Route redirects **plus** RLS on the data it reads | Stage 5 browser gate; E2E |
 | **Own profile row** | **Yes** | **RLS** `profiles_select_own`, `profiles_update_own` (each requiring a live session and `deleted_at is null`) + GRANT `select` and column-level `update (display_name)` to `authenticated` only | **Stage 6 gate, below** |

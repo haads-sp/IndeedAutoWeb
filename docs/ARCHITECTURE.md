@@ -49,7 +49,9 @@ folder.
 | `src/features/` *(Stage 3+)* | One directory per use case; logic and its tests | A feature may not import another feature. Shared code moves down to `lib/`, never sideways. |
 | `src/lib/env/` | The environment registry and the two assertions | The **only** module permitted to read `process.env`. `server.ts` carries `import 'server-only'`. |
 | `src/lib/supabase/` *(Stage 2)* | `@supabase/ssr` client factories | The only place Supabase keys are referenced. Server access decisions use `getClaims()`, never `getSession()`. |
-| `src/lib/logging/` *(Stage 9)* | Structured events, correlation id | Records what happened. Never drives behaviour. |
+| `src/lib/logging/` *(Stage 9)* | Structured events, correlation id, redaction | Records what happened. Never drives behaviour. Nothing leaves the process unredacted. |
+| `src/lib/observability/` *(Stage 10)* | Sentry options and event scrubbing | Server only; nothing Sentry-related reaches the browser. Pure, so the scrubbing is tested without a DSN. |
+| `src/lib/security/` *(Stage 10)* | The Content-Security-Policy builder | Pure. The policy is asserted in tests, not read off a response and trusted. |
 | `src/types/` *(Stage 2+)* | Shared type declarations | Imports nothing. |
 | `scripts/` | Repo tooling (`secret-scan.mjs`) | Run from npm and CI. Never imported by `src/`. |
 | `tests/` | Tests not owned by a feature | Fixtures are generated at run time, never committed. |
@@ -78,7 +80,8 @@ Stage 1 has exactly one route and no data, so the full path is short:
    called `serverEnv()`. A missing required variable would have failed server startup by name.
    **It would not have failed the build** — see `docs/DOMAIN.md`.
 3. `src/app/layout.tsx` renders, wrapping `src/app/page.tsx`.
-4. `page.tsx` is a static placeholder. It is prerendered at build time and served as static content.
+4. `page.tsx` is a placeholder. Since Stage 10 it is rendered per request, like every page: the root
+   layout awaits `connection()` so each response carries its own CSP nonce (docs/DECISIONS.md).
 5. No database is touched, no session is read, no secret is loaded.
 
 Steps 2–5 grow as stages land. The shape — boot assertion, then composition in `app/`, then a

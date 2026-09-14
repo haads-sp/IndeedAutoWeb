@@ -16,11 +16,13 @@ export interface ServerEnv {
   readonly SUPABASE_SECRET_KEY: string | undefined;
   readonly UPSTASH_REDIS_REST_URL: string | undefined;
   readonly UPSTASH_REDIS_REST_TOKEN: string | undefined;
+  readonly SENTRY_DSN: string | undefined;
   readonly SENTRY_AUTH_TOKEN: string | undefined;
+  readonly SENTRY_ORG: string | undefined;
+  readonly SENTRY_PROJECT: string | undefined;
   readonly NEXT_PUBLIC_SUPABASE_URL: string | undefined;
   readonly NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: string | undefined;
   readonly NEXT_PUBLIC_SITE_URL: string | undefined;
-  readonly NEXT_PUBLIC_SENTRY_DSN: string | undefined;
 }
 
 let cached: ServerEnv | undefined;
@@ -57,11 +59,13 @@ export function serverEnv(): ServerEnv {
     SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
     UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
+    SENTRY_DSN: process.env.SENTRY_DSN,
     SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
+    SENTRY_ORG: process.env.SENTRY_ORG,
+    SENTRY_PROJECT: process.env.SENTRY_PROJECT,
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
-    NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
   };
 
   return cached;

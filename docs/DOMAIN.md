@@ -567,3 +567,114 @@ three returned `permission denied`.
 `soft_delete_own_account()`'s re-authentication check depends on exactly that shape, and
 `scripts/deletion-guard-check.mjs` observed the guard refusing a 330-second-old sign-in with
 `403 "recent re-authentication required"` while the same token remained otherwise valid.
+
+---
+
+## Sentry 10.x collects cookies, headers, bodies and query strings by default            (2026-09-14, verified here)
+
+`sendDefaultPii` is deprecated in `@sentry/nextjs` 10.x and replaced by `dataCollection`. The installed
+type definitions (10.74.0) document these defaults: cookies **on**, request and response headers
+**on**, HTTP bodies **all types**, URL query parameters **on**, database query data **on**,
+stack-frame local variables **on**. An omitted `httpBodies` means all bodies; only `[]` turns it off.
+Every guide that says "just set `sendDefaultPii: false`" predates this.
+
+Established by reading the installed types, then by capturing the SDK's real payload: the production
+build ran with `SENTRY_DSN` pointed at a local listener, and a deliberate error was forced with a fake
+`sb-…-auth-token` cookie, a bearer token, `X-Forwarded-For`, a `?token_hash=` and `?email=` query, and
+an email address and JWT in the error message. The captured event carried `request` as only
+`{"method":"GET","url":"…/debug/sentry-check"}`, the message as `ga***@example.com`, `[jwt]`,
+`token_hash=[redacted]`, and none of the other values anywhere in any envelope.
+
+---
+
+## Sentry's `captureRequestError` puts the query string in `contexts.nextjs.request_path`            (2026-09-14, verified here)
+
+`onRequestError` receives `request.path`, which Next.js documents as "resource path, e.g.
+/blog?name=foo": query string included. `@sentry/nextjs`'s `captureRequestError` copies it verbatim
+into `contexts.nextjs.request_path`. That key is outside `request`, so `dataCollection.urlQueryParams`
+and a scrubber that only cleans `request.url` both miss it, and `/auth/confirm?token_hash=…` would
+reach Sentry intact. `scrubEvent()` strips it explicitly; the local payload capture shows
+`"request_path":"/debug/sentry-check"` for a request made with a query string.
+
+---
+
+## `withSentryConfig` changes three things it does not announce            (2026-09-14, verified here)
+
+Read from `node_modules/@sentry/nextjs/build/cjs/config` (10.74.0):
+
+1. **It forces `experimental.clientTraceMetadata`** (unless `cacheComponents` is set), which renders
+   `<meta name="baggage">` and `<meta name="sentry-trace">` into every page. The baggage (the dynamic
+   sampling context) includes the DSN's `public_key` and the Sentry `org_id`. `next.config.ts` deletes
+   the option after wrapping; the built config's `experimental.clientTraceMetadata` is `undefined`.
+2. **With Turbopack it sets `productionBrowserSourceMaps: true` when that is unset**, then relies on its
+   own post-upload step to delete the maps. Setting it to `false` explicitly skips all of that.
+3. **Importing it from `@sentry/nextjs` is deprecated**: "will stop working in v11. Import it from
+   `@sentry/nextjs/config` instead."
+
+---
+
+## Next.js refuses a cross-site Server Action, but lets one with NO Origin through            (2026-09-14, verified here)
+
+`next/dist/server/app-render/action-handler.js` compares the `Origin` host with `x-forwarded-host`
+(or `host`). Observed against the production build, posting the `/forgot-password` form:
+
+```
+Origin: http://127.0.0.1:3210   303  → ?outcome=invalid_email   (the action ran, one event logged)
+Origin: https://evil.example    500  no Location                (refused, no event logged)
+Origin: null                    500  no Location                (refused)
+```
+
+A request with **no** `Origin` header is allowed with only a logged warning. The code's own comment
+gives the reasoning: every browser sends `Origin` on a cross-site POST, and a hand-crafted request
+without one cannot carry a victim's cookies. The refusal throws `Invalid Server Actions request.`,
+which reaches `onRequestError`, and is why `sentry-options.ts` drops that exact message.
+
+---
+
+## `next start` copies proxy RESPONSE headers onto the request            (2026-09-14, verified here)
+
+In `next/dist/server/lib/router-utils/resolve-routes.js`, after applying request-header overrides,
+every header on the proxy's response is written to the response AND to `req.headers`. So a
+`Content-Security-Policy` set on the proxy's response replaces the one set on its request before the
+page renders, and Next.js takes the nonce from it.
+
+Found by mutation: the proxy was changed to send a *different* nonce on the response than on the
+request. Under `next start` nothing broke. The HTML nonce and the header nonce still matched, and
+every test passed, because the response value had silently become the render value. Vercel's router
+is a different implementation and is not known to copy. Hence `src/proxy.ts` sets one identical
+string on both, and a mismatch between them cannot be caught locally or in E2E.
+
+---
+
+## Playwright's `page.addScriptTag` is not subject to the page's CSP            (2026-09-14, verified here)
+
+Used as the negative control for "an injected script is blocked", `addScriptTag({ content })` ran
+its script on a page whose response carried a strict nonce policy. Playwright inserts it through the
+DevTools protocol, which Chromium exempts. A control built that way passes whatever the policy says.
+The security spec instead intercepts the server's real HTML with `page.route` and adds un-nonced
+markup under the real headers. That script, and an inline `onerror` handler, are blocked and
+reported.
+
+---
+
+## Next.js 16 error boundaries: `retry()` re-fetches, `reset()` does not            (2026-09-14, from documentation)
+
+`node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/error.md` (16.3.5):
+`retry()` "will try to re-fetch and re-render the error boundary's children"; `reset()` clears the
+error state and re-renders "without re-fetching", and the guide says "in most cases, you should use
+`retry()` instead". For an error thrown by a Server Component, `reset()` re-renders the same failed
+result. Training data and older guides use `reset`.
+
+Also observed: for the same thrown error, the full-page request and the RSC request made by
+`retry()` get **different digests** (`2513825341` and `2518623826`). A person quoting a reference
+after pressing "Try again" may quote the second.
+
+---
+
+## A Server Component error renders the friendly page only once JavaScript runs            (2026-09-14, verified here)
+
+`curl` of a page that throws returns `500` and HTML with no "Something went wrong" in it. The error
+travels in the RSC payload (digest only; message and stack absent), and `src/app/error.tsx`, a client
+component, renders after hydration. In a browser the page showed the friendly text and the reference,
+with no CSP violations. With JavaScript disabled the person sees no message at all. That still leaks
+nothing (P3 holds), but it is not friendly, and the Stage 10 gate has to be checked in a real browser.

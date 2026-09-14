@@ -60,10 +60,14 @@ export const ENV_REGISTRY: readonly EnvVar[] = [
     description: 'Upstash Redis REST token.',
   },
   {
-    name: 'NEXT_PUBLIC_SENTRY_DSN',
-    scope: 'client',
+    // Server scope, not NEXT_PUBLIC_: there is no browser Sentry to read it (docs/DECISIONS.md),
+    // and a DSN published in page source lets anyone send junk events against the quota.
+    // Never required: CI, E2E and local development run without Sentry, and /api/version
+    // reports whether it is configured rather than failing boot.
+    name: 'SENTRY_DSN',
+    scope: 'server',
     requiredFrom: null,
-    description: 'Sentry DSN. Write-only ingest key, not a secret.',
+    description: 'Sentry DSN. Ingest-only, but kept server-side: nothing in the browser reads it.',
   },
   {
     name: 'SENTRY_AUTH_TOKEN',
@@ -71,10 +75,22 @@ export const ENV_REGISTRY: readonly EnvVar[] = [
     requiredFrom: null,
     description: 'Sentry auth token, for source map upload at build time.',
   },
+  {
+    name: 'SENTRY_ORG',
+    scope: 'server',
+    requiredFrom: null,
+    description: 'Sentry organisation slug, for source map upload at build time.',
+  },
+  {
+    name: 'SENTRY_PROJECT',
+    scope: 'server',
+    requiredFrom: null,
+    description: 'Sentry project slug, for source map upload at build time.',
+  },
 ];
 
 /** The stage this checkout currently implements. Bumped as each stage lands. */
-export const CURRENT_STAGE = 3;
+export const CURRENT_STAGE = 10;
 
 /** Variables in `scope` that must be present at `stage`. */
 export function requiredVars(scope: Scope, stage: number = CURRENT_STAGE): readonly EnvVar[] {

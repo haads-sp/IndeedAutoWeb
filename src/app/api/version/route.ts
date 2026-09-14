@@ -15,6 +15,7 @@ import { NextResponse } from 'next/server';
 
 import { rateLimitConfigured } from '@/features/auth/rate-limit';
 import { deploymentInfo } from '@/lib/env/deployment';
+import { sentryDsn } from '@/lib/env/sentry';
 import { upstashPartiallyConfigured } from '@/lib/env/upstash';
 
 export const dynamic = 'force-dynamic';
@@ -37,6 +38,12 @@ export function GET() {
         : upstashPartiallyConfigured()
           ? 'misconfigured'
           : 'not-configured',
+      /**
+       * Whether errors are reported anywhere. 'configured' means a Sentry DSN is present — it
+       * does NOT prove events arrive; the Stage 10 gate (a forced error, found in Sentry) is
+       * what proves that. 'not-configured' is the honest answer in CI and locally.
+       */
+      errorReporting: sentryDsn() ? 'configured' : 'not-configured',
     },
     {
       headers: {

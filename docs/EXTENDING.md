@@ -38,10 +38,17 @@ route, which calls `verifyOtp` on the server and writes the session as an HttpOn
 <p>If you did not create an account, you can ignore this message.</p>
 ```
 
-The route that consumes it is `src/app/auth/confirm/route.ts`. The `next` parameter is passed
-through `safeNext()` (`src/features/auth/safe-redirect.ts`), which allows same-origin paths only —
-without it, a crafted link would confirm the user and then forward them, freshly authenticated,
-to an attacker's page.
+Opening the link shows `src/app/auth/confirm/page.tsx`, a page with a button, and spends nothing.
+The button posts `src/app/auth/confirm/actions.ts`, which is the only thing that calls `verifyOtp`
+(logic in `src/features/auth/confirm-link.ts`). Since Stage 10, never make this a GET again: mail
+scanners that open links would spend the token first, and any page could sign a visitor into an
+attacker's account (docs/DECISIONS.md). The link format itself did not change, so the templates
+here are unchanged.
+
+The `next` parameter is passed through `safeNext()` (`src/features/auth/safe-redirect.ts`) on the
+page AND again in the action, because a hidden form field can be edited. It allows same-origin
+paths only; without it, a crafted link would confirm the user and then forward them, freshly
+authenticated, to an attacker's page.
 
 Apply the same template to **every** Supabase project. A project whose template still uses
 `{{ .ConfirmationURL }}` will appear to work — the email arrives and the link confirms the
@@ -119,3 +126,32 @@ signed-in computer from replacing the password without knowing it.
 If a real reset link ever lands on "That reset link has expired" immediately, the likely cause is
 that Supabase recorded the recovery sign-in under an `amr` method this code does not recognise. The
 accepted set is `INBOX_PROOF_METHODS` in `src/features/auth/password-reset.ts`.
+
+---
+
+## Recipe: adding a page or a form under the Stage 10 protections
+
+What you get for free, and the few ways to break it.
+
+**A new page.** Nothing to add for rendering: the root layout awaits `connection()`, so the page
+renders per request and Next.js stamps the request's nonce on its scripts. What breaks it:
+
+- `style={{ … }}` in server-rendered markup. An inline style *attribute* is blocked by the production
+  policy; nonces cover `<style>` and `<script>` elements only. Use classes.
+- An external script, font, image host or fetch target. The policy allows `'self'` only. Changing
+  `src/lib/security/csp.ts` is a security decision, so record it in docs/DECISIONS.md.
+- A `'use client'` component that does real work. Errors in it are not reported (there is no browser
+  Sentry, by decision); revisit that decision first.
+
+**Proving it:** add the path to the list in `tests/e2e/security.spec.ts` ("pages load and hydrate
+with no violations"). That test fails on a blocked script, and checks that the page's own scripts
+actually ran.
+
+**A new form.** Use a Server Action. Next.js refuses one whose `Origin` is another site, which is the
+CSRF protection. Never change state in a GET: not in a route handler, and not in a page (see
+`/auth/confirm`). Treat every submitted field as untrusted, hidden ones included.
+
+**Logging from it.** Call `logEvent()` with the feature's own outcome enum. It reaches the platform
+log and Sentry Logs, and any outcome that `levelFor()` rates `error` (today `unavailable`) also opens a
+Sentry issue, grouped by event and outcome. Never put a token, password or email address in
+`detail`; `scrub()` redacts them anyway, but do not rely on it.
