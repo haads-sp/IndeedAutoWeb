@@ -1,0 +1,15 @@
+# Findings gitleaks reports that are NOT secrets, one fingerprint each.
+#
+# Format: commit:file:rule-id:line. A commit fingerprint ignores that ONE finding in that ONE commit,
+# and nothing else. It is deliberately narrower than an allowlist in .gitleaks.toml: the same value
+# committed again, anywhere, is still a finding.
+#
+# Every entry must say why it is not a secret. An entry without a reason is how a real leak gets
+# waved through later. Do not quote the flagged value here: this file is scanned too.
+
+# 2026-09-14. src/features/auth/confirm-link.test.ts, line 11: a made-up token hash for a unit test
+# that mocks Supabase, so it was never sent anywhere. generic-api-key matched on the word "token"
+# plus a twelve-character value with no repeated character (entropy 3.585, threshold 3.5). The
+# value was replaced with a low-entropy one in the next commit. This entry exists only because
+# gitleaks scans full history and the commit is on main. docs/ISSUES.md row 7.
+2cdf8059c7de7f8f9ae693c845a09f5458617991:src/features/auth/confirm-link.test.ts:generic-api-key:11

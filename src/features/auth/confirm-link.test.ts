@@ -8,7 +8,7 @@ vi.mock('@/lib/supabase/server', () => ({
 
 import { confirmLink, failureDestination, parseConfirmLink } from './confirm-link';
 
-const GOOD = { tokenHash: 'a1b2c3d4e5f6', type: 'email', next: '/portal' } as const;
+const GOOD = { tokenHash: 'fake-token-hash', type: 'email', next: '/portal' } as const;
 
 beforeEach(() => {
   verifyOtp.mockReset();
