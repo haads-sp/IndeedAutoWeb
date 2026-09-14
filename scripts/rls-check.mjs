@@ -54,6 +54,18 @@ function mask(email) {
   return `${local.slice(0, 2)}***@${domain}`;
 }
 
+/**
+ * Masks every email address in a string before it is printed. This script's queries do not
+ * currently return addresses, but the sister script's did, and a response body is not a
+ * place to assume nothing personal will ever appear.
+ */
+function redact(text) {
+  return text.replace(
+    /([A-Za-z0-9._%+-]{1,2})[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/g,
+    '$1***@$2',
+  );
+}
+
 function rowsOf(body) {
   try {
     const parsed = JSON.parse(body || '[]');
@@ -103,7 +115,7 @@ const results = [];
 function report(label, query, result, expectation, ok) {
   console.log(`\n${ok ? 'PASS' : 'FAIL'}  ${label}`);
   console.log(`  query:    ${query}`);
-  console.log(`  response: ${result.status} ${result.body || '(empty)'}`);
+  console.log(`  response: ${result.status} ${redact(result.body || '(empty)')}`);
   console.log(`  expected: ${expectation}`);
   results.push(ok);
 }

@@ -459,7 +459,7 @@ one of the triggers above exists, and that stage should test it then.
 
 ---
 
-## Signing out does not invalidate access tokens already issued            (2026-09-14, from documentation — verified by script at the Stage 7 gate)
+## Signing out does not invalidate access tokens already issued            (2026-09-14, the gap from documentation; the fix verified here)
 
 Supabase's documentation, on sign-out:
 
@@ -483,9 +483,32 @@ by the token's `session_id` claim — a required claim on every Supabase access 
 calling user. Every policy on `profiles` now requires it. Revocation becomes immediate at the data
 layer.
 
-**Evidence:** `npm run check:sessions` signs one account in on two "devices", signs out globally
-from the second, then uses the first device's still-unexpired token against the Auth server, the
-Data API and the refresh endpoint. Output is recorded at the Stage 7 gate.
+**Evidence — Stage 7 gate, 2026-09-14, production.** `npm run check:sessions` signed one account in
+on two "devices", signed out globally from the second, then used the first device's token — which
+still had **3599 seconds** before its `exp` — against each layer:
+
+```
+CONTROL  before revocation, Data API reads own profile   -> 200 [{"id":"bf00f5b8-…"}]
+CONTROL  before revocation, Auth server accepts token    -> 200
+         device 2 signs out globally                     -> 204
+AFTER    Auth server                                     -> 403 session_not_found
+                                                            "Session from session_id claim in JWT does not exist"
+AFTER    Data API read                                   -> 200 []
+AFTER    Data API write                                  -> 200 []   (zero rows affected)
+AFTER    refresh endpoint                                -> 400 refresh_token_not_found
+```
+
+**The measured exposure window is one hour.** The token had 3599s left, so these projects issue
+3600s access tokens — the length of time a stolen token would have kept reading data after a
+password reset, without the fix.
+
+**What this does and does not prove.** It proves the fix works: the same request that returned the
+row one moment before revocation returned `[]` after it, while the token was still unexpired. It
+does **not** re-demonstrate the gap. No run was made against the policies WITHOUT
+`session_is_active()`, because that means deliberately weakening RLS to watch it fail. The claim
+that the row would otherwise have been returned rests on Supabase's documentation and on PostgREST
+checking only signature and `exp`. If anyone proposes removing `session_is_active()` on the grounds
+that "PostgREST checks sessions now", that counterfactual is the test to run first — on preview.
 
 **For every future table:** its policies must include `(select public.session_is_active())`, or
 revoked sessions keep read access to it until their tokens expire.
