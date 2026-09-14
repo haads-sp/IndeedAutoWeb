@@ -26,8 +26,15 @@ export async function GET(request: NextRequest) {
   const type = searchParams.get('type');
   const next = searchParams.get('next');
 
+  // A failed link sends the user back to the flow the link came FROM. Every failure used to
+  // land on /verify-email, whose copy is about signing up — so an expired password-reset
+  // link told people to "sign up again with the same address", which is wrong and, for
+  // someone who already has an account, alarming.
+  const failureDestination =
+    type === 'recovery' ? '/forgot-password?outcome=link_expired' : '/verify-email?state=invalid';
+
   if (!tokenHash || !type || !ALLOWED_TYPES.includes(type as EmailOtpType)) {
-    redirect('/verify-email?state=invalid');
+    redirect(failureDestination);
   }
 
   const supabase = await createClient();
@@ -38,8 +45,9 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     // Expired and already-used tokens both land here. The distinction is not shown to the
-    // user, who can do the same thing either way: request a new link.
-    redirect('/verify-email?state=invalid');
+    // user, who can do the same thing either way: request a new link. This is also where
+    // "single-use" is enforced — verifyOtp consumes the token, so a second click fails.
+    redirect(failureDestination);
   }
 
   // Only ever redirect to a path on this origin. Taking `next` verbatim would make this

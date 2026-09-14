@@ -120,6 +120,15 @@ test.describe('password reset (anonymous)', () => {
     await expect(page.getByText('If an account exists for that address')).toBeVisible();
   });
 
+  test('a used or expired RESET link returns to the reset flow, not to signup', async ({ page }) => {
+    // Before this, every failed link landed on /verify-email, which told a user with a
+    // perfectly good account to "sign up again with the same address".
+    await page.goto('/auth/confirm?token_hash=already-used-or-expired&type=recovery&next=/reset-password');
+    await expect(page).toHaveURL(/\/forgot-password\?outcome=link_expired/);
+    await expect(page.getByText(/expired or has already been used/i)).toBeVisible();
+    await expect(page.getByText(/sign up again/i)).toHaveCount(0);
+  });
+
   test('the reset form is unreachable without a recovery session', async ({ page }) => {
     await page.goto('/reset-password');
     await expect(page).toHaveURL(/\/forgot-password\?outcome=link_expired/);
