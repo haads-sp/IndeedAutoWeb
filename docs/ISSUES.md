@@ -103,3 +103,43 @@ denied — confirming both the diagnosis and the fix.
 **The general shape, and why it matters beyond this script.** A security check that cannot fail is
 not a check. Every check in this repository that passes on a refusal needs a way to tell "refused"
 apart from "never asked" — the CONTROL rows in both check scripts exist for the same reason.
+
+**The irreversible branch, and append-only, on preview (2026-09-14).** Stage 8 shipped
+`admin_purge_deleted_accounts()` without ever having run it, and append-only triggers that had never
+been triggered. Both were tested against the junk account left in the preview project by the Stage 6
+signup probe (`ca96c3aa-95a9-49b8-8f08-5d651b06ba24`, never confirmed), in four separate SQL runs —
+separate because the SQL editor runs a paste as one transaction, and the append-only attempts are
+meant to error, which would otherwise roll back the purge being observed.
+
+1. Marked it soft-deleted 31 days ago. The would-be-purged list showed that account and nothing else.
+2. `select public.admin_purge_deleted_accounts();` returned **`1`** — so the function's owner *can*
+   delete from `auth.users`, the specific risk flagged before running it.
+3. The audit row **survived the deletion it records**:
+
+   ```
+   action          account.purged
+   actor_id        null
+   metadata        {"grace":"30 days","soft_deleted_at":"2026-08-14T07:06:19.206354+00:00"}
+   auth_user_still_exists   0
+   profile_still_exists     0
+   ```
+
+   `soft_deleted_at` matches step 1's `deleted_at` exactly — the log preserves when the account was
+   marked even though the account no longer exists anywhere else.
+
+4. As the **table owner** — which holds UPDATE, DELETE and TRUNCATE privileges — each was attempted
+   inside its own exception handler:
+
+   ```
+   precondition: rows to test against   1 (ok)
+   UPDATE     refused: audit_log is append-only: UPDATE is not permitted
+   DELETE     refused: audit_log is append-only: DELETE is not permitted
+   TRUNCATE   refused: audit_log is append-only: TRUNCATE is not permitted
+   rows remaining afterwards            1 (was 1)
+   ```
+
+   Privileges permitted all three; only the triggers refused them. The precondition row is what makes
+   the refusals meaningful: row-level triggers do not fire on an empty table, so an UPDATE or DELETE
+   against zero rows would have "succeeded" and proved nothing (the lesson of row 5).
+
+**Still not done:** the purge is not scheduled. It works; nothing runs it.
