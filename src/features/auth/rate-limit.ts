@@ -1,15 +1,14 @@
 import 'server-only';
 
 /**
- * Rate limiting for authentication attempts.
+ * Rate limiting for authentication endpoints.
  *
- * BUILD-PLAN.md Stage 4: "Rate limit login attempts here, not later (Upstash). Per-address
- * and per-IP." Both dimensions are needed and they stop different attacks:
+ * Every policy limits per-address AND per-IP, because they stop different attacks:
  *
- *   - **Per-address** stops a password-guessing run against one known account, however
- *     many machines it comes from.
- *   - **Per-IP** stops credential stuffing, where one host tries one password against
- *     thousands of different addresses and never trips a per-address limit.
+ *   - **Per-address** stops a sustained attack on one known account from many machines
+ *     — password guessing on login, or email-bombing one person with reset links.
+ *   - **Per-IP** stops one host spraying thousands of different addresses, which never
+ *     trips a per-address limit.
  *
  * Limiting only one of them leaves the other attack completely unhindered.
  */
@@ -23,69 +22,99 @@ export type RateLimitDecision =
   | { allowed: true; enforced: boolean }
   | { allowed: false; retryAfterSeconds: number };
 
+type Duration = `${number} ${'s' | 'm' | 'h'}`;
+
+interface PolicyShape {
+  readonly perAddress: { readonly attempts: number; readonly window: Duration };
+  readonly perIp: { readonly attempts: number; readonly window: Duration };
+}
+
 /**
- * Windows are deliberately generous enough not to catch a person who has genuinely
- * forgotten their password, and tight enough that automated guessing is pointless.
- *
- * Per-address is the stricter of the two: a real human rarely needs six tries, whereas one
- * office or one mobile carrier NAT can legitimately produce many sign-ins from one IP.
+ * Per-address is the stricter dimension in both: a real person rarely needs many tries,
+ * whereas one office or one mobile carrier NAT can legitimately share an IP.
  */
-const PER_ADDRESS = { attempts: 5, window: '15 m' } as const;
-const PER_IP = { attempts: 20, window: '10 m' } as const;
+const POLICIES = {
+  login: {
+    perAddress: { attempts: 5, window: '15 m' },
+    perIp: { attempts: 20, window: '10 m' },
+  },
+  /**
+   * Stricter per address than login. Every allowed request sends a real email to a real
+   * person, so the thing being protected is someone's inbox, not just our endpoint.
+   */
+  passwordReset: {
+    perAddress: { attempts: 3, window: '15 m' },
+    perIp: { attempts: 10, window: '10 m' },
+  },
+} as const satisfies Record<string, PolicyShape>;
 
-let cached: { address: Ratelimit; ip: Ratelimit } | null | undefined;
+export type RateLimitPolicy = keyof typeof POLICIES;
 
-function limiters() {
-  if (cached !== undefined) return cached;
+type Limiters = { address: Ratelimit; ip: Ratelimit };
 
+let redis: Redis | null | undefined;
+const limiterCache = new Map<RateLimitPolicy, Limiters>();
+
+function redisClient(): Redis | null {
+  if (redis !== undefined) return redis;
   const config = upstashConfig();
-  if (!config) {
-    cached = null;
-    return cached;
-  }
+  redis = config ? new Redis({ url: config.url, token: config.token }) : null;
+  return redis;
+}
 
-  const redis = new Redis({ url: config.url, token: config.token });
+function limitersFor(policy: RateLimitPolicy): Limiters | null {
+  const cached = limiterCache.get(policy);
+  if (cached) return cached;
 
-  cached = {
+  const client = redisClient();
+  if (!client) return null;
+
+  const shape = POLICIES[policy];
+  const limiters: Limiters = {
     address: new Ratelimit({
-      redis,
-      // Sliding window, not fixed: a fixed window lets an attacker burn the full quota at
-      // the end of one window and again at the start of the next, doubling the real rate.
-      limiter: Ratelimit.slidingWindow(PER_ADDRESS.attempts, PER_ADDRESS.window),
-      prefix: 'rl:login:addr',
+      redis: client,
+      // Sliding, not fixed: a fixed window lets an attacker spend a full quota at the end
+      // of one window and again at the start of the next, doubling the real rate.
+      limiter: Ratelimit.slidingWindow(shape.perAddress.attempts, shape.perAddress.window),
+      // Separate prefix per policy, so tripping the login limit does not block a
+      // legitimate password reset for the same address, and vice versa.
+      prefix: `rl:${policy}:addr`,
       analytics: false,
     }),
     ip: new Ratelimit({
-      redis,
-      limiter: Ratelimit.slidingWindow(PER_IP.attempts, PER_IP.window),
-      prefix: 'rl:login:ip',
+      redis: client,
+      limiter: Ratelimit.slidingWindow(shape.perIp.attempts, shape.perIp.window),
+      prefix: `rl:${policy}:ip`,
       analytics: false,
     }),
   };
 
-  return cached;
+  limiterCache.set(policy, limiters);
+  return limiters;
 }
 
 /**
- * @param emailKey a STABLE, normalised identifier for the address being attempted.
+ * @param emailKey a STABLE, normalised identifier for the address being attempted — keyed
+ *   on the address given, whether or not an account exists for it. That is what keeps the
+ *   limit itself from becoming an enumeration oracle.
  * @param ip the client address, or null when it could not be determined.
  *
- * **Fails open.** If Upstash is unreachable the attempt is allowed and `enforced` is
- * false, so the caller can record that the limit did not actually run. An Upstash outage
- * must not lock every user out of their account; it is a control, not the security
+ * **Fails open.** If Upstash is unreachable the attempt is allowed and `enforced` is false.
+ * An Upstash outage must not lock everyone out; it is a control, not the security
  * boundary. `enforced: false` must never be read as "allowed because under the limit".
  */
-export async function checkLoginRateLimit(
+export async function checkRateLimit(
+  policy: RateLimitPolicy,
   emailKey: string,
   ip: string | null,
 ): Promise<RateLimitDecision> {
-  const limits = limiters();
+  const limits = limitersFor(policy);
   if (!limits) return { allowed: true, enforced: false };
 
   try {
-    // Both are checked, and both are consumed, even if the first one denies. Consuming
-    // only up to the first denial would let an attacker probe which dimension they had
-    // tripped, and would leave the other counter artificially low.
+    // Both counters are consumed even when the first denies. Stopping at the first denial
+    // would let an attacker learn which dimension they had tripped, and would leave the
+    // other counter artificially low.
     const [addressResult, ipResult] = await Promise.all([
       limits.address.limit(emailKey),
       ip ? limits.ip.limit(ip) : Promise.resolve(null),
@@ -101,12 +130,16 @@ export async function checkLoginRateLimit(
 
     return { allowed: true, enforced: true };
   } catch {
-    // Network error or Upstash outage. See the doc comment: fail open, flagged.
     return { allowed: true, enforced: false };
   }
 }
 
-/** True when rate limiting is actually wired up. Used to report configuration honestly. */
+/** Login's limit. Kept as a named function so call sites read as what they are. */
+export function checkLoginRateLimit(emailKey: string, ip: string | null) {
+  return checkRateLimit('login', emailKey, ip);
+}
+
+/** True when rate limiting is actually wired up. Reported by /api/version. */
 export function rateLimitConfigured(): boolean {
-  return limiters() !== null;
+  return redisClient() !== null;
 }

@@ -456,3 +456,36 @@ branches with a mocked client, including a **forged** `user_metadata.email_verif
 unconfirmed user. Mutation-tested: changing the check to trust `user_metadata` fails exactly that
 test and no other. That covers the logic we own. The end-to-end behaviour becomes testable the day
 one of the triggers above exists, and that stage should test it then.
+
+---
+
+## Signing out does not invalidate access tokens already issued            (2026-09-14, from documentation — verified by script at the Stage 7 gate)
+
+Supabase's documentation, on sign-out:
+
+> "Access Tokens of revoked sessions remain valid until their expiry time, encoded in the `exp` claim."
+
+A global sign-out deletes the rows in `auth.sessions` and revokes refresh tokens. It does **not**
+expire JWTs already handed out. That produces a split that is easy to miss:
+
+| Layer | Checks | After a global sign-out, an unexpired token is… |
+|---|---|---|
+| Auth server (`getUser()`) | The session still exists | **Rejected** |
+| Our routes (`currentSession()`) | Calls `getUser()` | **Rejected** |
+| PostgREST / the Data API | Signature and `exp` **only** | **Accepted** until expiry |
+
+So before Stage 7, "reset your password because someone has your session" signed them out of the
+**app** while leaving the **data** open to them for up to an hour, via direct API calls with the
+token they already held. Prohibition P2 puts the boundary in RLS, so that is where it is fixed.
+
+**The fix:** `public.session_is_active()` checks that `auth.sessions` still contains the row named
+by the token's `session_id` claim — a required claim on every Supabase access token — for the
+calling user. Every policy on `profiles` now requires it. Revocation becomes immediate at the data
+layer.
+
+**Evidence:** `npm run check:sessions` signs one account in on two "devices", signs out globally
+from the second, then uses the first device's still-unexpired token against the Auth server, the
+Data API and the refresh endpoint. Output is recorded at the Stage 7 gate.
+
+**For every future table:** its policies must include `(select public.session_is_active())`, or
+revoked sessions keep read access to it until their tokens expire.

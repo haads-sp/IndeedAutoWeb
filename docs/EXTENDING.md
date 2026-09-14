@@ -89,3 +89,33 @@ password in GitHub secrets. That credential grants full access to the database, 
 different class of thing from anything currently stored there (a publishable key that is already
 public, and a test account for a throwaway preview project). Worth revisiting when schema changes
 become frequent enough that the manual step is the bigger risk.
+
+---
+
+## Recipe: the password reset email template
+
+Same reason as the confirmation template above: the default `{{ .ConfirmationURL }}` returns tokens
+in a URL fragment that cannot become an HttpOnly cookie. The reset link must go through our own
+`/auth/confirm` route, as `type=recovery`, and land on `/reset-password`.
+
+**Supabase dashboard → Authentication → Email Templates → Reset Password**, set the body to:
+
+```html
+<h2>Reset your password</h2>
+<p>Follow the link below to choose a new password. It works once and expires soon.</p>
+<p>
+  <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password">
+    Choose a new password
+  </a>
+</p>
+<p>If you did not ask to reset your password, you can ignore this message. Your password will not change.</p>
+```
+
+**`/reset-password` rejects any session that did not just prove inbox control.** It checks the
+token's `amr` claim for a one-time-code sign-in within `RECOVERY_WINDOW_SECONDS` (15 minutes). A
+session established with a password cannot use the form, which is what stops someone at an unlocked,
+signed-in computer from replacing the password without knowing it.
+
+If a real reset link ever lands on "That reset link has expired" immediately, the likely cause is
+that Supabase recorded the recovery sign-in under an `amr` method this code does not recognise. The
+accepted set is `INBOX_PROOF_METHODS` in `src/features/auth/password-reset.ts`.

@@ -91,6 +91,30 @@ test.describe('anonymous access', () => {
     await expect(page.getByText(/known data breach/i)).toBeVisible();
   });});
 
+test.describe('password reset (anonymous)', () => {
+  test('/login links to the reset flow', async ({ page }) => {
+    await page.goto('/login');
+    await page.getByRole('link', { name: 'Forgot your password?' }).click();
+    await expect(page.getByRole('heading', { name: 'Reset your password' })).toBeVisible();
+  });
+
+  test('requesting a reset says the same thing for an address with no account', async ({ page }) => {
+    // Side-effect free: no account exists for this address, so no email is sent. The point
+    // is that the page gives nothing away — it must read exactly as it would for a real one.
+    await page.goto('/forgot-password');
+    await page.getByLabel('Email').fill(`no-account-${Date.now()}@example.com`);
+    await page.getByRole('button', { name: 'Send reset link' }).click();
+
+    await expect(page).toHaveURL(/\/forgot-password\?outcome=sent/);
+    await expect(page.getByText('If an account exists for that address')).toBeVisible();
+  });
+
+  test('the reset form is unreachable without a recovery session', async ({ page }) => {
+    await page.goto('/reset-password');
+    await expect(page).toHaveURL(/\/forgot-password\?outcome=link_expired/);
+  });
+});
+
 test.describe('signed in', () => {
   test.skip(!haveAccount, 'E2E_EMAIL and E2E_PASSWORD are not set');
 
@@ -162,6 +186,20 @@ test.describe('signed in', () => {
     // Read back from the database, not from the form's own state.
     await page.reload();
     await expect(page.getByPlaceholder('Display name')).toHaveValue(name);
+  });
+
+  /**
+   * The threat isFreshRecovery() exists for, end to end: someone at an unlocked computer
+   * that is signed in with a PASSWORD. They have a perfectly valid session, and they must
+   * still not be able to set a new password without proving control of the inbox.
+   */
+  test('a PASSWORD session cannot use the reset form', async ({ page }) => {
+    await signIn(page);
+    await expect(page.getByRole('heading', { name: 'Portal' })).toBeVisible();
+
+    await page.goto('/reset-password');
+    await expect(page).toHaveURL(/\/forgot-password\?outcome=link_expired/);
+    await expect(page.getByRole('heading', { name: 'Choose a new password' })).toHaveCount(0);
   });
 
   test('a signed-out browser cannot reach the portal at all', async ({ browser }) => {

@@ -20,6 +20,13 @@ const OUTCOME_MESSAGE: Record<string, string> = {
   missing_fields: 'Enter both an email and a password.',
   unavailable: 'Something went wrong on our side. Please try again.',
   signed_out: 'You have been signed out.',
+  password_reset:
+    'Your password has been changed and every device has been signed out. Sign in with your new password.',
+  // Deliberately NOT the same message as above. The password did change, but signing out
+  // the other sessions did not complete, and saying it did would be a false claim about
+  // the user's security (P7).
+  password_reset_sessions_uncertain:
+    'Your password has been changed, but we could not confirm your other devices were signed out. Sign in, then reset your password again to be sure.',
 };
 
 export default async function LoginPage({
@@ -36,7 +43,7 @@ export default async function LoginPage({
         ? OUTCOME_MESSAGE[outcome]
         : null;
 
-  const isNeutral = outcome === 'signed_out';
+  const isNeutral = outcome === 'signed_out' || outcome === 'password_reset';
 
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 p-8">
@@ -86,6 +93,12 @@ export default async function LoginPage({
           Sign in
         </button>
       </form>
+
+      <p className="text-sm text-neutral-500">
+        <Link href="/forgot-password" className="underline underline-offset-2">
+          Forgot your password?
+        </Link>
+      </p>
 
       <p className="text-sm text-neutral-500">
         No account?{' '}

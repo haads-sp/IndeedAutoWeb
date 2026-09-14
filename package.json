@@ -11,7 +11,8 @@
     "test": "vitest run",
     "scan:secrets": "node scripts/secret-scan.mjs",
     "test:e2e": "playwright test",
-    "check:rls": "node scripts/rls-check.mjs"
+    "check:rls": "node scripts/rls-check.mjs",
+    "check:sessions": "node scripts/session-revocation-check.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
