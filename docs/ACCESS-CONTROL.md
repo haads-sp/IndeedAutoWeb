@@ -37,7 +37,7 @@ prohibition P2.
 | `/portal` | Yes | Route redirects **plus** RLS on the data it reads | Stage 5 browser gate; E2E |
 | **Own profile row** | **Yes** | **RLS** `profiles_select_own`, `profiles_update_own` + GRANT `select, update` to `authenticated` only | **Stage 6 gate, below** |
 | **Any other profile row** | **Denied to everyone** | **RLS** (no policy matches) **and** no admin role exists | **Stage 6 gate, below** |
-| Audit log | **No** — table does not exist | — | Stage 9 |
+| Audit log | **Yes** (minimal, Stage 8) | **RLS** own entries only, verified + live session; append-only **triggers** for every role; no client write path | Stage 8 gate; `rls-check.mjs` forge probe |
 | Admin routes | **No** — no admin role exists | — | P6: role changes are manual SQL |
 
 **"Any other profile row" is stricter than the matrix,** which grants Admin "read only, logged". There

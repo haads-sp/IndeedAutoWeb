@@ -20,6 +20,11 @@ import { checkLoginRateLimit } from './rate-limit';
 
 export type LoginOutcome =
   | { outcome: 'signed_in' }
+  /**
+   * Correct password, soft-deleted account. Safe to distinguish from invalid_credentials
+   * for the same reason email_not_confirmed is: reaching it already requires the password.
+   */
+  | { outcome: 'account_deleted' }
   | { outcome: 'invalid_credentials' }
   | { outcome: 'email_not_confirmed' }
   | { outcome: 'rate_limited'; retryAfterSeconds: number }
@@ -48,6 +53,16 @@ export async function logIn(
   const { error } = await supabase.auth.signInWithPassword({ email: trimmed, password });
 
   if (!error) {
+    // A soft delete leaves auth.users untouched, so Supabase accepts the password and
+    // issues a session. That session must not survive this request.
+    const { data: active, error: activeError } = await supabase.rpc('account_is_active');
+
+    if (activeError || active !== true) {
+      // Whatever the reason, do not leave a session behind that we could not vouch for.
+      await supabase.auth.signOut({ scope: 'local' });
+      return activeError ? { outcome: 'unavailable' } : { outcome: 'account_deleted' };
+    }
+
     return { outcome: 'signed_in' };
   }
 

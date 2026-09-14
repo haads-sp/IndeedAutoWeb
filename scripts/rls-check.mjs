@@ -202,6 +202,55 @@ async function main() {
     delOwn.status === 401 || delOwn.status === 403 || rowsOf(delOwn.body).length === 0,
   );
 
+  // ---- Stage 8: columns, not just rows.
+  //
+  // RLS decides WHICH ROWS a user may update. It says nothing about WHICH COLUMNS. With a
+  // table-level UPDATE grant, a user may write every column of their own row — including
+  // deleted_at. Once deletion reads that column, writing it directly would skip
+  // re-authentication and the audit record, and would let a deleted user restore themselves.
+  //
+  // The probe sets deleted_at to null, which it already is: no data changes, but it still
+  // requires UPDATE privilege on that column. FAILS before the Stage 8 migration (the
+  // privilege exists) and PASSES after it (only display_name is grantable).
+  const column = await asUser(b.token, `/rest/v1/profiles?id=eq.${b.userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ deleted_at: null }),
+  });
+  report(
+    'user B writes deleted_at on their OWN row directly (Stage 8)',
+    `PATCH /rest/v1/profiles?id=eq.${b.userId} {"deleted_at":null}   (as B)`,
+    column,
+    'refused - only display_name may be written by a client',
+    column.status === 401 || column.status === 403,
+  );
+
+  // Admin-only functions must not be callable by a signed-in user. Before the Stage 8
+  // migration they do not exist yet, so "not found" also passes; the claim being tested is
+  // "not callable by a client", which both satisfy.
+  for (const fn of ['admin_purge_deleted_accounts', 'admin_restore_account', 'write_audit']) {
+    const call = await asUser(b.token, `/rest/v1/rpc/${fn}`, { method: 'POST', body: '{}' });
+    report(
+      `user B calls the admin-only function ${fn}`,
+      `POST /rest/v1/rpc/${fn}   (as B)`,
+      call,
+      'refused, or not present',
+      call.status === 401 || call.status === 403 || call.status === 404,
+    );
+  }
+
+  // The audit log is append-only for everyone, and clients may not write it at all.
+  const forge = await asUser(b.token, '/rest/v1/audit_log', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'account.restored', subject_id: b.userId }),
+  });
+  report(
+    'user B forges an audit_log entry (Stage 8)',
+    'POST /rest/v1/audit_log   (as B)',
+    forge,
+    'refused, or not present',
+    forge.status === 401 || forge.status === 403 || forge.status === 404,
+  );
+
   // And nothing above actually touched A's row.
   const after = await asUser(a.token, `/rest/v1/profiles?id=eq.${a.userId}&select=id,display_name`);
   report(

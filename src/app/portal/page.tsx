@@ -11,6 +11,7 @@
  * Do not invent product features."
  */
 
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { currentSession } from '@/features/auth/session';
@@ -45,6 +46,9 @@ export default async function PortalPage({
   }
   if (session.state === 'unverified') {
     redirect('/verify-email?state=unconfirmed');
+  }
+  if (session.state === 'deleted') {
+    redirect('/login?outcome=account_deleted');
   }
 
   const supabase = await createClient();
@@ -112,6 +116,16 @@ export default async function PortalPage({
               : 'unknown'}
           </dd>
         </dl>
+      </section>
+
+      <section className="flex flex-col gap-2 border-t border-neutral-200 pt-6">
+        <h2 className="text-sm font-medium">Delete account</h2>
+        <p className="text-xs text-neutral-500">
+          Closes your account and signs you out everywhere.
+        </p>
+        <Link href="/account/delete" className="text-sm text-red-700 underline underline-offset-2">
+          Delete my account
+        </Link>
       </section>
     </main>
   );

@@ -129,6 +129,11 @@ test.describe('password reset (anonymous)', () => {
     await expect(page.getByText(/sign up again/i)).toHaveCount(0);
   });
 
+  test('account deletion is unreachable when signed out', async ({ page }) => {
+    await page.goto('/account/delete');
+    await expect(page).toHaveURL(/\/login\?next=\/account\/delete/);
+  });
+
   test('the reset form is unreachable without a recovery session', async ({ page }) => {
     await page.goto('/reset-password');
     await expect(page).toHaveURL(/\/forgot-password\?outcome=link_expired/);
@@ -220,6 +225,44 @@ test.describe('signed in', () => {
     await page.goto('/reset-password');
     await expect(page).toHaveURL(/\/forgot-password\?outcome=link_expired/);
     await expect(page.getByRole('heading', { name: 'Choose a new password' })).toHaveCount(0);
+  });
+
+  /**
+   * Stage 8. ONLY the refusal paths are tested here. Actually deleting the shared E2E
+   * account would break every later run, and a completed deletion is verified by the
+   * Stage 8 gate against a real account, with the row shown in the database.
+   */
+  test('a WRONG password on the delete form deletes nothing', async ({ page }) => {
+    await signIn(page);
+    await page.goto('/account/delete');
+
+    await page.getByLabel('Current password').fill('definitely-not-the-password');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: 'Delete my account' }).click();
+
+    await expect(page).toHaveURL(/outcome=wrong_password/);
+    await expect(page.getByText('Your account has not been deleted.')).toBeVisible();
+
+    // Proven by using the account, not by trusting the message.
+    await page.goto('/portal');
+    await expect(page.getByRole('heading', { name: 'Portal' })).toBeVisible();
+  });
+
+  test('without the confirmation, the server refuses even with the right password', async ({
+    page,
+  }) => {
+    await signIn(page);
+    await page.goto('/account/delete');
+
+    // The checkbox is `required` in the browser. Removed here, because the point is that the
+    // SERVER refuses — an attacker does not use our form.
+    await page.getByRole('checkbox').evaluate((el: HTMLInputElement) => el.removeAttribute('required'));
+    await page.getByLabel('Current password').fill(PASSWORD!);
+    await page.getByRole('button', { name: 'Delete my account' }).click();
+
+    await expect(page).toHaveURL(/outcome=not_confirmed/);
+    await page.goto('/portal');
+    await expect(page.getByRole('heading', { name: 'Portal' })).toBeVisible();
   });
 
   test('a signed-out browser cannot reach the portal at all', async ({ browser }) => {

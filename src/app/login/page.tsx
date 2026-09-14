@@ -25,6 +25,9 @@ const OUTCOME_MESSAGE: Record<string, string> = {
   // Deliberately NOT the same message as above. The password did change, but signing out
   // the other sessions did not complete, and saying it did would be a false claim about
   // the user's security (P7).
+  // Reached after a deletion, or by signing in with the CORRECT password to a soft-deleted
+  // account. Neither reveals anything to someone who does not already hold the password.
+  account_deleted: 'This account has been deleted.',
   password_reset_sessions_uncertain:
     'Your password has been changed, but we could not confirm your other devices were signed out. Sign in, then reset your password again to be sure.',
 };

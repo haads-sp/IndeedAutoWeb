@@ -279,3 +279,78 @@ hex characters go over the wire.
 returned so the caller can record that the check did not run. The alternative — a third-party
 outage halting all account creation to enforce defence in depth — is worse. `unavailable` must
 never be treated as `breached`.
+
+---
+
+## The audit log is built in Stage 8, not Stage 9            (2026-09-14)
+
+**Decision.** `audit_log` is created by the Stage 8 migration, minimal: who, what, when, from where.
+Stage 9 extends it rather than creating it.
+
+**Why.** Stage 8 requires "deletion writes an audit row", and BUILD-PLAN.md schedules the table for
+Stage 9. Building deletion first would mean shipping an irreversible-adjacent action that records
+nothing, which is exactly what P5 and P7 exist to prevent.
+
+**Rejected.** Keeping the stages strictly in order and back-filling deletion's audit rows later. A
+deletion that happened before the audit log existed can never be audited.
+
+**The line that does not move.** Nothing reads `audit_log` to decide anything. Whether an account is
+deleted is `profiles.deleted_at`. "The audit log is not workflow state" (Stage 9).
+
+---
+
+## Append-only is enforced by triggers, not by RLS            (2026-09-14)
+
+**Decision.** `audit_log` has BEFORE UPDATE, BEFORE DELETE and BEFORE TRUNCATE triggers that raise.
+
+**Why.** RLS cannot make a table append-only for everyone: the secret key carries `BYPASSRLS`.
+Triggers are not bypassed by `BYPASSRLS`, so they hold for every role short of one that can drop the
+trigger itself — which is a schema change, and visible.
+
+**Rejected.** Policies alone. They stop clients and nothing else.
+
+**The line that does not move.** An audit row, once written, is never edited or removed.
+
+---
+
+## Re-authentication for deletion is enforced in the database            (2026-09-14)
+
+**Decision.** `soft_delete_own_account()` refuses unless the calling token records a **password**
+sign-in within the last 300 seconds (the `amr` claim). The application checks the password too.
+
+**Why.** The function is reachable directly through the Data API by any signed-in session. If the
+password check lived only in the Server Action, deleting an account from a browser console would
+need no password at all. `scripts/deletion-guard-check.mjs` tests this by signing in, waiting past
+the window, and calling the function directly.
+
+**Rejected.** Application-only enforcement. The route is not the boundary (P2).
+
+---
+
+## Clients may update only `display_name`            (2026-09-14)
+
+**Decision.** `grant update (display_name) on public.profiles to authenticated`, replacing the
+table-level `update` granted in Stage 6.
+
+**Why.** RLS restricts which ROWS a user may update, never which COLUMNS. With a table-level grant a
+user could write every column of their own row — harmless while nothing read `deleted_at`, and an
+access-control bypass from the moment Stage 8 gave it meaning: self-deletion without re-auth or an
+audit record, and self-restoration after being deleted. Closed in the same migration that makes the
+column meaningful. `scripts/rls-check.mjs` probes it.
+
+---
+
+## Deletion grace period: 30 days, purged manually            (2026-09-14)
+
+**Decision.** A soft-deleted account is eligible for purge after 30 days, via
+`admin_purge_deleted_accounts()`, run by hand from the SQL editor. Nothing schedules it.
+
+**Why.** A scheduled job that deletes users automatically should not ship before it has been run and
+observed on preview. Manual first, automated once proven.
+
+**The consequence, stated plainly.** Until the purge is scheduled, data is retained for **at least**
+30 days, with no upper bound. The deletion page therefore promises only "at least 30 days" and does
+not claim data is "permanently removed after 30 days" — a promise nothing enforces is a rule in a
+document that nothing checks (BUILD-PLAN.md §8), aimed at users. **Before real users exist**, the
+purge must either be scheduled or the Stage 11 Data Deletion policy must describe the manual process
+accurately.
