@@ -25,16 +25,66 @@ presence of a session lets them through.
 
 ## Status
 
-Nothing above is implemented. This section tracks that honestly rather than leaving the matrix
-looking like a description of working software.
+As of Stage 6 (2026-09-14). This tracks the truth rather than leaving the matrix looking like a
+description of working software. A row whose only enforcer is a redirect is not done — that is
+prohibition P2.
 
-| Row | Implemented | Enforced by |
-|---|---|---|
-| every row | **No** | — |
+| Row | Implemented | Enforced by | Evidence |
+|---|---|---|---|
+| Landing, legal pages | Stub only | No data to protect | `/` is a Stage 11 placeholder |
+| Signup, login, reset | Signup + login; **reset is Stage 7** | Routes; no data access | E2E suite |
+| Verification pending page | Yes | Route | Stage 5 browser gate |
+| `/portal` | Yes | Route redirects **plus** RLS on the data it reads | Stage 5 browser gate; E2E |
+| **Own profile row** | **Yes** | **RLS** `profiles_select_own`, `profiles_update_own` + GRANT `select, update` to `authenticated` only | **Stage 6 gate, below** |
+| **Any other profile row** | **Denied to everyone** | **RLS** (no policy matches) **and** no admin role exists | **Stage 6 gate, below** |
+| Audit log | **No** — table does not exist | — | Stage 9 |
+| Admin routes | **No** — no admin role exists | — | P6: role changes are manual SQL |
 
-The `Enforced by` column fills in during Stages 5 and 6 and must name a **policy**, not a route.
-A row whose only enforcer is a redirect is not done — that is prohibition P2, and Stage 6's gate is
-specifically a cross-tenant query run as a real second user, not a passing unit test.
+**"Any other profile row" is stricter than the matrix,** which grants Admin "read only, logged". There
+is no admin role and no logging yet, so nobody gets that read. Failing closed until the logging
+exists is the right order: an admin read that is not logged is exactly what the matrix forbids.
+
+### Stage 6 gate — run 2026-09-14 against production, two real users
+
+`npm run check:rls` (`scripts/rls-check.mjs`), publishable key, no mocks:
+
+```
+PASS  CONTROL - user A reads their own row
+  query:    GET /rest/v1/profiles?id=eq.8a0d1e65-4a01-4f80-9350-7f7e2852511f   (as A)
+  response: 200 [{"id":"8a0d1e65-4a01-4f80-9350-7f7e2852511f","display_name":null}]
+
+PASS  THE GATE - user B reads user A's row by id
+  query:    GET /rest/v1/profiles?id=eq.8a0d1e65-4a01-4f80-9350-7f7e2852511f   (as B)
+  response: 200 []
+
+PASS  user B lists the entire table
+  response: 200 [{"id":"bf00f5b8-af41-4311-a879-efb5041b1c41"}]      <- only B's own
+
+PASS  user B updates user A's row
+  response: 200 []                                                    <- zero rows affected
+
+PASS  user B deletes user A's row
+  response: 403 "permission denied for table profiles"               <- refused by the GRANT
+
+PASS  user B deletes their OWN row (P5 - must still be refused)
+  response: 403 "permission denied for table profiles"
+
+PASS  user A's row is intact afterwards
+  response: 200 [{"id":"8a0d1e65-...","display_name":null}]
+
+ALL 7 CHECKS PASSED
+```
+
+The CONTROL is what makes `200 []` meaningful: A can see A's row, so B's empty result is a denial
+rather than an empty table. The two `403`s show the **GRANT** layer refusing before RLS is consulted
+— before the lockdown migration the same request returned `204` and was protected only by the
+absence of a delete policy.
+
+### The "signed in, unverified" column
+
+Not testable end to end today — the state cannot currently be entered. See docs/DOMAIN.md for why,
+and for why disabling email confirmation does **not** create it. The branching logic is covered by
+`src/features/auth/session.test.ts`, including a forged `user_metadata.email_verified`.
 
 ## Two related prohibitions
 

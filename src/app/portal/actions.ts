@@ -34,12 +34,19 @@ export async function updateDisplayName(formData: FormData): Promise<void> {
   // No .eq('id', ...) is needed for safety — the RLS update policy restricts this to the
   // caller's own row. It is written explicitly anyway so the intent is readable, and so
   // that a policy regression shows up as zero rows rather than as someone else's row.
-  const { error } = await supabase
+  //
+  // `.select('id')` returns the rows actually updated, and the count is CHECKED below.
+  // An UPDATE that matches nothing is not an error — Postgres and PostgREST both report
+  // it as success (docs/DOMAIN.md). Without this check, a missing profile row or a broken
+  // policy would tell the user "Saved." while saving nothing. That is P7 in a UI: a claim
+  // that something worked, made without evidence that it did.
+  const { data, error } = await supabase
     .from('profiles')
     .update({ display_name: displayName })
-    .eq('id', session.userId);
+    .eq('id', session.userId)
+    .select('id');
 
-  if (error) {
+  if (error || !data || data.length !== 1) {
     redirect('/portal?outcome=save_failed');
   }
 

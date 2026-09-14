@@ -438,6 +438,21 @@ the Supabase dashboard, enables an auto-confirming provider, or adds social logi
 guard that only exists once the hole opens is a guard added under pressure.
 
 **Consequence for Stage 6.** The access matrix's "signed in, unverified" column cannot be tested
-end to end today. Verifying it means temporarily disabling email confirmation on the PREVIEW project
-and checking that `/portal` redirects to `/verify-email` rather than rendering. That is worth doing
-once, deliberately, and undoing immediately.
+end to end today.
+
+**CORRECTED 2026-09-14.** An earlier version of this entry said to test it by temporarily disabling
+email confirmation on the preview project. **That test does not work.** With "Confirm email" off,
+Supabase *auto-confirms* at signup — `mailer_autoconfirm: true` sets `email_confirmed_at`
+immediately — so the new user is **verified**, `/portal` renders, and the unverified branch is never
+exercised. It would have looked like a pass and proved nothing.
+
+Disabling confirmation does not create the state. What realistically would:
+
+- **Anonymous sign-ins**, if ever enabled: a session with no email and no `email_confirmed_at`
+- **Phase 2 OAuth providers** that return an address the provider itself has not verified
+
+**What is tested instead:** `src/features/auth/session.test.ts` exercises `currentSession()`'s three
+branches with a mocked client, including a **forged** `user_metadata.email_verified: true` on an
+unconfirmed user. Mutation-tested: changing the check to trust `user_metadata` fails exactly that
+test and no other. That covers the logic we own. The end-to-end behaviour becomes testable the day
+one of the triggers above exists, and that stage should test it then.
