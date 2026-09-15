@@ -32,13 +32,13 @@ prohibition P2.
 |---|---|---|---|
 | Landing, legal pages | Yes (Stage 11): `/`, `/terms`, `/privacy`, `/data-deletion`. The policy text is a placeholder marked for review by a lawyer. | Public by design; no data | E2E `public.spec.ts` |
 | Signup, login, reset | Yes (reset: Stage 7). Signup requires agreeing to the Terms and Privacy Policy (Stage 11), checked on the server before anything else. | Routes; no data access | E2E suite; Stage 7 gate; `policies_not_accepted` spec |
-| Email links (`/auth/confirm`) | Yes (two-step since Stage 10) | Opening the link changes nothing. Only the button's Server Action calls `verifyOtp`, and Next.js refuses that action from another origin. Every field is re-validated server-side. | E2E: the link waits for a button, the tampered form, a cross-site action refused (`security.spec.ts`). **Production, 2026-09-15:** the owner completed a real password reset through the button page and signed in with the new password. |
+| Email links (`/auth/confirm`) | Yes (two-step since Stage 10) | Opening the link changes nothing. Only the button's Server Action calls `verifyOtp`, and Next.js refuses that action from another origin. Every field is re-validated server-side. | E2E: the link waits for a button, the tampered form, a cross-site action refused (`security.spec.ts`). **Production, 2026-09-15:** the owner completed a real password reset through the button page and signed in with the new password. Then a real signup's confirmation email arrived in the inbox, its link showed the button page, and pressing it landed on the portal. |
 | **Own policy acceptances** (Stage 11) | **Yes** | **RLS** `policy_acceptances_select_own` (own rows, verified + live session) + GRANT `select` only; append-only **triggers** for every role; written only by the signup trigger and `accept_policies()`, which enforces a live session, a verified address and an active account | **Stage 11 gate, below**: production, two real users, 19/19 |
 | Verification pending page | Yes | Route | Stage 5 browser gate |
 | `/portal` | Yes. Since Stage 11 it also requires the current policy versions to be accepted. | Route gate in `layout.tsx` (a real 307, docs/ISSUES.md row 8) **plus** RLS on the data it reads | Stage 5 browser gate; E2E, including the raw 307 |
 | **Own profile row** | **Yes** | **RLS** `profiles_select_own`, `profiles_update_own` (each requiring a live session and `deleted_at is null`) + GRANT `select` and column-level `update (display_name)` to `authenticated` only | **Stage 6 gate, below** |
 | **Any other profile row** | **Denied to everyone** | **RLS** (no policy matches) **and** no admin role exists | **Stage 6 gate, below** |
-| Audit log | **Yes** | **RLS** own entries only, verified + live session; append-only **triggers** for every role; no client write path; rows written by **triggers on the auth tables**, never by clients | `audit-trail-check.mjs` on production: B saw only B's rows, A only A's, A querying B by id got `[]`, a revoked session read nothing; `rls-check.mjs` forge probe |
+| Audit log | **Yes** | **RLS** own entries only, verified + live session; append-only **triggers** for every role; no client write path; rows written by **triggers on the auth tables**, never by clients | `audit-trail-check.mjs` on production: B saw only B's rows, A only A's, A querying B by id got `[]`, a revoked session read nothing; `rls-check.mjs` forge probe. **Every trigger action now observed on production (2026-09-15):** a real signup wrote `account.created`, then `account.email_confirmed` and `auth.session_started` in the same instant when confirmed; a real password reset wrote `auth.password_changed`. |
 | Admin routes | **No** — no admin role exists | — | P6: role changes are manual SQL |
 
 **"Any other profile row" is stricter than the matrix,** which grants Admin "read only, logged". There
@@ -114,6 +114,22 @@ PASS  user B deletes their own acceptance
 
 ALL 19 CHECKS PASSED
 ```
+
+**The signup path, observed separately.** Every acceptance above came from the acceptance page or the
+RPC. So a new account was created on production through the signup form, and its confirmation email
+followed through the button page. It went straight to the portal, never seeing `/accept-terms`. Read
+from the SQL editor, with no address, IP or user agent selected:
+
+```
+audit: new account   account.created                            04:50:29.773655
+acceptance           terms 2026-09-15-placeholder via signup    04:50:29.77531
+acceptance           privacy 2026-09-15-placeholder via signup  04:50:29.77531
+audit: new account   account.email_confirmed                    04:51:28.282771
+audit: new account   auth.session_started                       04:51:28.282771
+```
+
+Both acceptances were recorded by the trigger on `auth.users`, in the transaction that created the
+account (`source = signup`, two milliseconds after `account.created`), not by the acceptance page.
 
 B's CONTROL is what makes A's `[]` meaningful: B's rows exist, and A still cannot see them. The three
 `403`s come from the GRANT layer (authenticated has SELECT only); the append-only triggers would refuse
