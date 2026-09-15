@@ -23,6 +23,9 @@ import { signUp } from './signup';
 
 const GOOD_PASSWORD = 'a-perfectly-fine-passphrase';
 
+/** A signup whose Terms and Privacy checkbox was ticked. The metadata shape is the legal feature's concern. */
+const CONSENT = { accepted: true, metadata: { accepted_policies: { terms: 'v1', privacy: 'v1' } } } as const;
+
 beforeEach(() => {
   supabaseSignUp.mockReset();
   checkRateLimit.mockReset();
@@ -34,7 +37,7 @@ beforeEach(() => {
 
 describe('signup: identical response whether or not the address has an account', () => {
   it('a normal signup is verification_sent', async () => {
-    expect(await signUp('a@example.com', GOOD_PASSWORD, null)).toEqual({ outcome: 'verification_sent' });
+    expect(await signUp('a@example.com', GOOD_PASSWORD, null, CONSENT)).toEqual({ outcome: 'verification_sent' });
   });
 
   /**
@@ -49,7 +52,7 @@ describe('signup: identical response whether or not the address has an account',
       error: { status: 429, message: 'email rate limit exceeded', code: 'over_email_send_rate_limit' },
     });
 
-    expect(await signUp('a@example.com', GOOD_PASSWORD, null)).toEqual({ outcome: 'verification_sent' });
+    expect(await signUp('a@example.com', GOOD_PASSWORD, null, CONSENT)).toEqual({ outcome: 'verification_sent' });
   });
 
   it('"already registered" is the SAME outcome as success', async () => {
@@ -58,7 +61,7 @@ describe('signup: identical response whether or not the address has an account',
       error: { status: 400, message: 'User already registered' },
     });
 
-    expect(await signUp('a@example.com', GOOD_PASSWORD, null)).toEqual({ outcome: 'verification_sent' });
+    expect(await signUp('a@example.com', GOOD_PASSWORD, null, CONSENT)).toEqual({ outcome: 'verification_sent' });
   });
 });
 
@@ -66,7 +69,7 @@ describe('signup rate limiting', () => {
   it('OUR limit is surfaced, and stops the request before the breach check and Supabase', async () => {
     checkRateLimit.mockResolvedValue({ allowed: false, retryAfterSeconds: 90 });
 
-    expect(await signUp('a@example.com', GOOD_PASSWORD, '203.0.113.9')).toEqual({
+    expect(await signUp('a@example.com', GOOD_PASSWORD, '203.0.113.9', CONSENT)).toEqual({
       outcome: 'rate_limited',
       retryAfterSeconds: 90,
     });
@@ -75,12 +78,12 @@ describe('signup rate limiting', () => {
   });
 
   it('uses the signup policy, keyed on the normalised typed address and the IP', async () => {
-    await signUp('  A@Example.COM ', GOOD_PASSWORD, '203.0.113.9');
+    await signUp('  A@Example.COM ', GOOD_PASSWORD, '203.0.113.9', CONSENT);
     expect(checkRateLimit).toHaveBeenCalledWith('signup', 'a@example.com', '203.0.113.9');
   });
 
   it('a too-short password is rejected WITHOUT spending a rate-limit attempt', async () => {
-    const result = await signUp('a@example.com', 'short', null);
+    const result = await signUp('a@example.com', 'short', null, CONSENT);
 
     expect(result.outcome).toBe('password_rejected');
     // Correcting a typo must not burn the user's attempts.
@@ -88,7 +91,34 @@ describe('signup rate limiting', () => {
   });
 
   it('a malformed address spends no attempt either', async () => {
-    expect(await signUp('not-an-email', GOOD_PASSWORD, null)).toEqual({ outcome: 'invalid_email' });
+    expect(await signUp('not-an-email', GOOD_PASSWORD, null, CONSENT)).toEqual({ outcome: 'invalid_email' });
     expect(checkRateLimit).not.toHaveBeenCalled();
+  });
+});
+
+describe('signup consent (Stage 11)', () => {
+  it('without the checkbox nothing is processed: no limiter, no breach lookup, no Supabase', async () => {
+    expect(await signUp('a@example.com', GOOD_PASSWORD, '203.0.113.9', { accepted: false })).toEqual({
+      outcome: 'policies_not_accepted',
+    });
+    expect(checkRateLimit).not.toHaveBeenCalled();
+    expect(validatePassword).not.toHaveBeenCalled();
+    expect(supabaseSignUp).not.toHaveBeenCalled();
+  });
+
+  it('is checked before the address, so the refusal says nothing about the address either', async () => {
+    expect(await signUp('not-an-email', 'short', null, { accepted: false })).toEqual({
+      outcome: 'policies_not_accepted',
+    });
+  });
+
+  it('sends the accepted versions to Supabase as user metadata, exactly as given', async () => {
+    await signUp('a@example.com', GOOD_PASSWORD, null, CONSENT);
+
+    expect(supabaseSignUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({ data: CONSENT.metadata }),
+      }),
+    );
   });
 });

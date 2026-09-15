@@ -7,12 +7,15 @@
 import Link from 'next/link';
 
 import { MIN_PASSWORD_LENGTH } from '@/features/auth/password';
+import { CURRENT_POLICIES } from '@/features/legal/policies';
 
 import { signUpAction } from './actions';
 
 export const dynamic = 'force-dynamic';
 
 const OUTCOME_MESSAGE: Record<string, string> = {
+  policies_not_accepted:
+    'To create an account, you need to agree to the Terms of Service and the Privacy Policy.',
   invalid_email: 'That does not look like an email address.',
   rate_limited: 'Too many attempts. Please wait a few minutes and try again.',
   unavailable: 'Something went wrong on our side. Please try again.',
@@ -78,6 +81,21 @@ export default async function SignupPage({
             At least {MIN_PASSWORD_LENGTH} characters. A memorable phrase of a few words is
             stronger than a short password with symbols in it — and we check against known
             breached passwords, so avoid anything you have used elsewhere.
+          </span>
+        </label>
+
+        <label className="flex items-start gap-2 text-sm">
+          <input name="accept_policies" type="checkbox" required className="mt-0.5" />
+          <span>
+            I agree to the{' '}
+            <Link href={CURRENT_POLICIES.terms.path} className="underline underline-offset-2">
+              {CURRENT_POLICIES.terms.title}
+            </Link>{' '}
+            and the{' '}
+            <Link href={CURRENT_POLICIES.privacy.path} className="underline underline-offset-2">
+              {CURRENT_POLICIES.privacy.title}
+            </Link>
+            .
           </span>
         </label>
 

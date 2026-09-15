@@ -690,3 +690,27 @@ travels in the RSC payload (digest only; message and stack absent), and `src/app
 component, renders after hydration. In a browser the page showed the friendly text and the reference,
 with no CSP violations. With JavaScript disabled the person sees no message at all. That still leaks
 nothing (P3 holds), but it is not friendly, and the Stage 10 gate has to be checked in a real browser.
+
+---
+
+## `loading.tsx` turns a page's `redirect()` into a 200 with a meta refresh            (2026-09-15, verified here)
+
+A route with a `loading.tsx` streams. The loading state is sent as soon as rendering starts, so the
+HTTP status is already committed when the page later calls `redirect()`. Next.js then cannot send a
+307. It sends **200**, with the loading skeleton,
+`<meta id="__next-page-redirect" http-equiv="refresh" content="1;url=/login?next=/portal"/>`, and
+`NEXT_REDIRECT;replace;/login?next=/portal;307` in the RSC payload.
+
+Observed against the production build, and on production itself, after Stage 10 added loading states:
+a signed-out `GET /portal` returned `200`. No private content was in the body; only the skeleton was
+there. Every browser-level test still passed, because a browser follows the meta refresh (and, with
+JavaScript, the client router). Routes without a `loading.tsx` kept returning 307, which made the cause
+easy to isolate: `/auth/confirm?type=email` → `307`, `/portal` → `200`.
+
+**The fix:** gate in the route's `layout.tsx`. A segment's loading boundary wraps its page, not its own
+layout, so a redirect thrown in the layout happens before anything is sent. After moving the gates
+(`src/app/gates.ts`), all four protected routes answer a signed-out request with `307` and the right
+`Location`, including with a forged session cookie. `tests/e2e/public.spec.ts` asserts the raw status
+with `maxRedirects: 0`, which is the only way a test sees it.
+
+**Rule:** any route that both redirects and has a `loading.tsx` must make that redirect in its layout.

@@ -34,6 +34,8 @@ import { checkRateLimit } from './rate-limit';
 export type SignupOutcome =
   /** Returned whether or not the address was already registered. See above. */
   | { outcome: 'verification_sent' }
+  /** The Terms and Privacy checkbox was not ticked. Nothing was checked or sent. */
+  | { outcome: 'policies_not_accepted' }
   | { outcome: 'password_rejected'; message: string }
   | { outcome: 'invalid_email' }
   /** OUR limit only — keyed on the typed address, account or not. Never Supabase's. */
@@ -48,11 +50,33 @@ function looksLikeEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && value.length <= 254;
 }
 
+/**
+ * Consent to the policies, as the signup form collected it.
+ *
+ * This module does not know which policies exist or what their versions are: that belongs to
+ * src/features/legal, and features never import each other (docs/ARCHITECTURE.md). The route
+ * composes the two, and passes the metadata through. The database trigger
+ * record_signup_policy_acceptance() turns it into ledger rows when the account is created.
+ *
+ * Required, with no default, so a caller cannot forget it into "accepted".
+ */
+export type SignupConsent =
+  | { readonly accepted: false }
+  | { readonly accepted: true; readonly metadata: Readonly<Record<string, unknown>> };
+
 export async function signUp(
   email: string,
   password: string,
   ip: string | null,
+  consent: SignupConsent,
 ): Promise<SignupOutcome> {
+  // FIRST, before anything else looks at the address. Without consent nothing is processed:
+  // no limiter keyed on the address, no breach lookup, no request to Supabase. It depends on
+  // nothing about any account, so it cannot become an oracle either.
+  if (!consent.accepted) {
+    return { outcome: 'policies_not_accepted' };
+  }
+
   const trimmed = email.trim().toLowerCase();
 
   if (!looksLikeEmail(trimmed)) {
@@ -91,6 +115,9 @@ export async function signUp(
     password,
     options: {
       emailRedirectTo: absoluteUrl(CONFIRM_PATH),
+      // Stored as user metadata. Recorded as policy acceptances by a trigger, on INSERT only:
+      // a signup for an address that already has an account creates nothing and records nothing.
+      data: consent.metadata,
     },
   });
 

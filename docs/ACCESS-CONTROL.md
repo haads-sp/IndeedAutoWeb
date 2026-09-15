@@ -30,11 +30,12 @@ prohibition P2.
 
 | Row | Implemented | Enforced by | Evidence |
 |---|---|---|---|
-| Landing, legal pages | Stub only | No data to protect | `/` is a Stage 11 placeholder |
-| Signup, login, reset | Yes (reset: Stage 7) | Routes; no data access | E2E suite; Stage 7 gate |
-| Email links (`/auth/confirm`) | Yes (two-step since Stage 10) | Opening the link changes nothing. Only the button's Server Action calls `verifyOtp`, and Next.js refuses that action from another origin. Every field is re-validated server-side. | E2E: the link waits for a button, the tampered form, a cross-site action refused (`security.spec.ts`) |
+| Landing, legal pages | Yes (Stage 11): `/`, `/terms`, `/privacy`, `/data-deletion`. The policy text is a placeholder marked for review by a lawyer. | Public by design; no data | E2E `public.spec.ts` |
+| Signup, login, reset | Yes (reset: Stage 7). Signup requires agreeing to the Terms and Privacy Policy (Stage 11), checked on the server before anything else. | Routes; no data access | E2E suite; Stage 7 gate; `policies_not_accepted` spec |
+| Email links (`/auth/confirm`) | Yes (two-step since Stage 10) | Opening the link changes nothing. Only the button's Server Action calls `verifyOtp`, and Next.js refuses that action from another origin. Every field is re-validated server-side. | E2E: the link waits for a button, the tampered form, a cross-site action refused (`security.spec.ts`). **Production, 2026-09-15:** the owner completed a real password reset through the button page and signed in with the new password. |
+| **Own policy acceptances** (Stage 11) | **Yes** | **RLS** `policy_acceptances_select_own` (own rows, verified + live session) + GRANT `select` only; append-only **triggers** for every role; written only by the signup trigger and `accept_policies()`, which enforces a live session, a verified address and an active account | `rls-check.mjs` Stage 11 section: B reads its own, A reading B's gets `[]`, direct insert, update and delete refused |
 | Verification pending page | Yes | Route | Stage 5 browser gate |
-| `/portal` | Yes | Route redirects **plus** RLS on the data it reads | Stage 5 browser gate; E2E |
+| `/portal` | Yes. Since Stage 11 it also requires the current policy versions to be accepted. | Route gate in `layout.tsx` (a real 307, docs/ISSUES.md row 8) **plus** RLS on the data it reads | Stage 5 browser gate; E2E, including the raw 307 |
 | **Own profile row** | **Yes** | **RLS** `profiles_select_own`, `profiles_update_own` (each requiring a live session and `deleted_at is null`) + GRANT `select` and column-level `update (display_name)` to `authenticated` only | **Stage 6 gate, below** |
 | **Any other profile row** | **Denied to everyone** | **RLS** (no policy matches) **and** no admin role exists | **Stage 6 gate, below** |
 | Audit log | **Yes** | **RLS** own entries only, verified + live session; append-only **triggers** for every role; no client write path; rows written by **triggers on the auth tables**, never by clients | `audit-trail-check.mjs` on production: B saw only B's rows, A only A's, A querying B by id got `[]`, a revoked session read nothing; `rls-check.mjs` forge probe |

@@ -20,7 +20,18 @@ export async function signIn(page: Page) {
   // Action, Supabase's token endpoint, then /portal's getUser() and profile read — and a
   // cold CI runner can take longer than the default on the first one. The other candidate
   // cause of row 4, so it is addressed too rather than guessed between.
-  await expect(page).toHaveURL(/\/portal/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/(portal|accept-terms)/, { timeout: 15_000 });
+
+  // Stage 11. An account that has not accepted the CURRENT policy versions is stopped at
+  // /accept-terms. The E2E account meets it once, after the first run with a new version, and
+  // accepts as a person would. Acceptance is recorded in the preview database, so later runs go
+  // straight to /portal. tests/e2e/public.spec.ts asserts the record is then shown.
+  if (new URL(page.url()).pathname === '/accept-terms') {
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('checkbox', { name: /I have read and agree/ }).check();
+    await page.getByRole('button', { name: 'Agree and continue' }).click();
+    await expect(page).toHaveURL(/\/portal/, { timeout: 15_000 });
+  }
 }
 
 type CspWindow = Window & { __cspViolations?: string[] };

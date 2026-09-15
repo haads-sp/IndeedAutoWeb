@@ -22,7 +22,13 @@
  *   node scripts/rls-check.mjs
  *
  * Exits 0 only if every isolation check holds.
+ *
+ * Grown since Stage 6: column-level grants and admin functions (Stage 8), the audit log (Stage 8),
+ * and the policy acceptance ledger (Stage 11). The Stage 11 section makes one real write: user B
+ * accepts the current policy versions, exactly as /accept-terms would.
  */
+
+import { readFileSync } from 'node:fs';
 
 const URL_ = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
@@ -64,6 +70,23 @@ function redact(text) {
     /([A-Za-z0-9._%+-]{1,2})[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/g,
     '$1***@$2',
   );
+}
+
+/**
+ * The versions the application currently asks people to accept, read from the source of truth
+ * rather than copied here, where they would drift. A version the app does not ask for would still
+ * be recorded (the database checks only its shape), so a stale copy would pass while testing the
+ * wrong thing.
+ */
+function currentPolicyVersions() {
+  const source = readFileSync(new URL('../src/features/legal/policies.ts', import.meta.url), 'utf8');
+  const pick = (document) => source.match(new RegExp(`${document}: \\{[^}]*version: '([^']+)'`))?.[1];
+  const versions = { terms: pick('terms'), privacy: pick('privacy') };
+
+  if (!versions.terms || !versions.privacy) {
+    throw new Error('could not read the current policy versions from src/features/legal/policies.ts');
+  }
+  return versions;
 }
 
 function rowsOf(body) {
@@ -280,6 +303,94 @@ async function main() {
     'refused with permission denied - a 404 means the table is missing and proves nothing',
     (forge.status === 401 || forge.status === 403) && /permission denied/i.test(forge.body),
   );
+
+  // ---- Stage 11: the policy acceptance ledger.
+  //
+  // B first records acceptance of the CURRENT versions through the only client write path,
+  // accept_policies(). A real write, and a legitimate one: it is exactly what /accept-terms does
+  // for B. It also guarantees B's CONTROL below has rows, so A's empty result is a denial rather
+  // than an empty table.
+  const versions = currentPolicyVersions();
+  const accept = await asUser(b.token, '/rest/v1/rpc/accept_policies', {
+    method: 'POST',
+    body: JSON.stringify({ p_terms_version: versions.terms, p_privacy_version: versions.privacy }),
+  });
+  report(
+    'user B accepts the current policies through accept_policies() (Stage 11)',
+    `POST /rest/v1/rpc/accept_policies ${JSON.stringify(versions)}   (as B)`,
+    accept,
+    '200 with the number of rows newly recorded: 2 the first time, 0 after',
+    accept.status === 200 && /^[0-9]+$/.test(accept.body.trim()),
+  );
+
+  const ownLedger = await asUser(
+    b.token,
+    `/rest/v1/policy_acceptances?user_id=eq.${b.userId}&select=document,version,source`,
+  );
+  const ownRows = rowsOf(ownLedger.body);
+  report(
+    'CONTROL - user B reads their own acceptances (Stage 11)',
+    `GET /rest/v1/policy_acceptances?user_id=eq.${b.userId}   (as B)`,
+    ownLedger,
+    'both current versions present, or every ledger check below is vacuous',
+    ownLedger.status === 200 &&
+      ownRows.some((r) => r.document === 'terms' && r.version === versions.terms) &&
+      ownRows.some((r) => r.document === 'privacy' && r.version === versions.privacy),
+  );
+
+  const crossLedger = await asUser(
+    a.token,
+    `/rest/v1/policy_acceptances?user_id=eq.${b.userId}&select=document,version`,
+  );
+  report(
+    "user A reads user B's acceptances by user id (Stage 11)",
+    `GET /rest/v1/policy_acceptances?user_id=eq.${b.userId}   (as A)`,
+    crossLedger,
+    'zero rows',
+    crossLedger.status === 200 && rowsOf(crossLedger.body).length === 0,
+  );
+
+  const allLedger = await asUser(a.token, '/rest/v1/policy_acceptances?select=user_id');
+  report(
+    'user A lists the entire ledger (Stage 11)',
+    'GET /rest/v1/policy_acceptances?select=user_id   (as A)',
+    allLedger,
+    "only A's own rows, if any",
+    allLedger.status === 200 && rowsOf(allLedger.body).every((r) => r.user_id === a.userId),
+  );
+
+  // No client write path at all: the table grants authenticated SELECT only.
+  const ledgerWrites = [
+    {
+      label: 'user B inserts an acceptance directly, in user A\'s name (Stage 11)',
+      path: '/rest/v1/policy_acceptances',
+      init: {
+        method: 'POST',
+        body: JSON.stringify({ user_id: a.userId, document: 'terms', version: versions.terms, source: 'signup' }),
+      },
+    },
+    {
+      label: 'user B rewrites their own acceptance (Stage 11)',
+      path: `/rest/v1/policy_acceptances?user_id=eq.${b.userId}`,
+      init: { method: 'PATCH', body: JSON.stringify({ version: 'rewritten' }) },
+    },
+    {
+      label: 'user B deletes their own acceptance (Stage 11)',
+      path: `/rest/v1/policy_acceptances?user_id=eq.${b.userId}`,
+      init: { method: 'DELETE' },
+    },
+  ];
+
+  for (const { label, path, init } of ledgerWrites) {
+    const write = await asUser(b.token, path, init);
+    report(
+      label,
+      `${init.method} ${path}   (as B)`,
+      write,
+      'refused with permission denied - a 404 means the table is missing and proves nothing',
+      (write.status === 401 || write.status === 403) && /permission denied/i.test(write.body),
+    );
+  }
 
   // And nothing above actually touched A's row.
   const after = await asUser(a.token, `/rest/v1/profiles?id=eq.${a.userId}&select=id,display_name`);

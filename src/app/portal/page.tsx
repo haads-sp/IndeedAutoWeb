@@ -12,12 +12,12 @@
  */
 
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 
-import { currentSession } from '@/features/auth/session';
+import { ACCEPTED_DOCUMENTS, CURRENT_POLICIES } from '@/features/legal/policies';
 import { logOutAction } from '@/app/login/actions';
 import { createClient } from '@/lib/supabase/server';
 
+import { requireAcceptedPolicies, requireVerifiedSession } from '../gates';
 import { updateDisplayName } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -36,20 +36,17 @@ export default async function PortalPage({
   const { outcome } = await searchParams;
   const notice = outcome ? OUTCOME_MESSAGE[outcome] : null;
 
-  const session = await currentSession();
-
-  // Two DIFFERENT destinations for two different states. Collapsing them into one check
-  // is exactly the mistake BUILD-PLAN.md §7 warns about: "a user who signed up but never
-  // clicked the link has a valid session and is not a verified user."
-  if (session.state === 'anonymous') {
-    redirect('/login?next=/portal');
-  }
-  if (session.state === 'unverified') {
-    redirect('/verify-email?state=unconfirmed');
-  }
-  if (session.state === 'deleted') {
-    redirect('/login?outcome=account_deleted');
-  }
+  // The same gates as ./layout.tsx, which is what makes a refusal a real 307 (../gates.ts). Run
+  // again here for narrowing, and so the check survives the layout moving; cached, so free.
+  //
+  // Verified, not merely signed in: BUILD-PLAN.md §7, "a user who signed up but never clicked the
+  // link has a valid session and is not a verified user."
+  //
+  // Stage 11: and the current Terms and Privacy Policy accepted. A route redirect, deliberately,
+  // not an RLS condition: consent here gates using the product, and Phase 1's portal holds nothing
+  // but the account's own profile. docs/DECISIONS.md.
+  const session = await requireVerifiedSession('/portal');
+  const consent = await requireAcceptedPolicies(session, '/portal');
 
   const supabase = await createClient();
   const { data: profile } = await supabase
@@ -115,6 +112,33 @@ export default async function PortalPage({
               ? new Date(profile.created_at).toISOString().slice(0, 10)
               : 'unknown'}
           </dd>
+        </dl>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-medium">Policies you accepted</h2>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-neutral-500">
+          {ACCEPTED_DOCUMENTS.map((document) => {
+            const policy = CURRENT_POLICIES[document];
+            // Read back from the ledger, not assumed from having got past the gate.
+            const row = consent.acceptances.find(
+              (a) => a.document === document && a.version === policy.version,
+            );
+            return (
+              <div key={document} className="contents">
+                <dt>
+                  <Link href={policy.path} className="underline underline-offset-2">
+                    {policy.title}
+                  </Link>
+                </dt>
+                <dd>
+                  {row
+                    ? `Version ${row.version}, accepted ${row.accepted_at.slice(0, 10)}`
+                    : 'Not recorded'}
+                </dd>
+              </div>
+            );
+          })}
         </dl>
       </section>
 

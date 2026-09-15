@@ -67,6 +67,10 @@ test.describe('Content-Security-Policy', () => {
     const violations = await recordCspViolations(page);
 
     for (const path of [
+      '/',
+      '/terms',
+      '/privacy',
+      '/data-deletion',
       '/login',
       '/signup',
       '/forgot-password',

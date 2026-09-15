@@ -142,6 +142,10 @@ renders per request and Next.js stamps the request's nonce on its scripts. What 
   `src/lib/security/csp.ts` is a security decision, so record it in docs/DECISIONS.md.
 - A `'use client'` component that does real work. Errors in it are not reported (there is no browser
   Sentry, by decision); revisit that decision first.
+- A protected route with a `loading.tsx` that redirects from its page. The loading state streams
+  first, so the redirect becomes a 200 with a meta refresh (docs/ISSUES.md row 8). Make the redirect
+  in the route's `layout.tsx` with a gate from `src/app/gates.ts`, call the same gate in the page,
+  and add the path to the "real redirect" list in `tests/e2e/public.spec.ts`.
 
 **Proving it:** add the path to the list in `tests/e2e/security.spec.ts` ("pages load and hydrate
 with no violations"). That test fails on a blocked script, and checks that the page's own scripts
@@ -155,3 +159,39 @@ CSRF protection. Never change state in a GET: not in a route handler, and not in
 log and Sentry Logs, and any outcome that `levelFor()` rates `error` (today `unavailable`) also opens a
 Sentry issue, grouped by event and outcome. Never put a token, password or email address in
 `detail`; `scrub()` redacts them anyway, but do not rely on it.
+
+---
+
+## Recipe: publishing reviewed policy text, or changing a policy
+
+The three policy pages are placeholders (Stage 11). Their text is written by, or reviewed by, a
+lawyer. Never generated.
+
+**Changing the Terms of Service or the Privacy Policy:**
+
+1. Replace `<PolicyPlaceholder …/>` in `src/app/terms/page.tsx` or `src/app/privacy/page.tsx` with the
+   reviewed text. Keep the notes comment at the top current, or delete what the text now covers.
+2. In the same commit, change that document's `version` in `src/features/legal/policies.ts`. Use a new
+   string matching `^[A-Za-z0-9._-]{1,64}$`, dated, e.g. `2026-11-01`. Drop `-placeholder` only for
+   reviewed text.
+3. Two tests will fail, on purpose. `src/features/legal/acceptance.test.ts` ("every current version is
+   marked as a placeholder") and the placeholder spec in `tests/e2e/public.spec.ts`. Change each to
+   match what is now true; do not delete them.
+4. Deploy. Nothing in the database changes: the ledger records whatever version the app asks for.
+
+**What happens next, and how you know it worked.** Every account, yours included, is sent to
+`/accept-terms` on its next visit to the portal, because nobody has accepted the new version. Sign in
+on production: you should see the acceptance page, accept, and the portal's "Policies you accepted"
+shows the new version and today's date. Old rows stay in the ledger. That history is the point.
+
+**Adding a document people must accept** is a schema change, not just a code change. Extend the
+`document` CHECK constraint on `public.policy_acceptances`, the document array in
+`record_signup_policy_acceptance()`, and the parameters of `accept_policies()`, in a new migration.
+`src/features/legal/acceptance.test.ts` compares the application's document list with the migration's
+CHECK constraint and trigger, and fails until they agree. Apply the migration to preview, then
+production, then push (the schema-change recipe above).
+
+**The Data Deletion Policy** is published, not accepted. Changing its text needs no version bump for
+consent, but still bump `DATA_DELETION_POLICY.version`, so the page says which text is current. Its
+code comment carries a requirement that must be met before real users exist: describe the manual purge
+accurately, or schedule it.

@@ -107,10 +107,11 @@ export const config = {
      *  - _next/static, _next/image  — build output, no session to refresh
      *  - favicon and common image extensions
      *  - /api/version               — a liveness probe must not depend on auth working
+     *  - robots.txt, llms.txt       — plain text for crawlers: no session, no scripts to nonce
      *
      * Without a matcher, proxy runs on every request including static assets, which turns
      * one token refresh per navigation into dozens.
      */
-    '/((?!_next/static|_next/image|api/version|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!_next/static|_next/image|api/version|favicon.ico|robots.txt|llms.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 };

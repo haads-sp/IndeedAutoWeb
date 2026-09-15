@@ -11,9 +11,12 @@ Indeed half, and nothing should until the account layer is finished and proven.
 
 ## Status
 
-**Stage 1 of 11: scaffold and documents.** There is one placeholder route and no product. No
-Supabase project, no deployment, no authentication code yet. `docs/BUILD-PLAN.md` is the controlling
-document and lists every stage.
+**Stage 11 of 11: public face.** Phase 1, the account layer, is built. It covers signup with email
+verification, sign-in and sign-out, password reset, soft account deletion and a verified-only portal,
+all behind RLS. It also has rate limiting, an audit trail, security headers, a nonce CSP, Sentry, and
+policy acceptance recorded per version. The live site is https://www.alsayeed.ca. The policy pages are
+placeholders awaiting review by a lawyer. There is still no product. `docs/BUILD-PLAN.md` is the
+controlling document; `docs/ISSUES.md` records what went wrong along the way.
 
 ## Commands
 
@@ -33,9 +36,10 @@ pushing. CI runs all of it plus gitleaks, and fails on any of them.
 ## Setup
 
 1. `npm install`
-2. `cp .env.example .env.local` and fill in what you have. Stage 1 requires **nothing** — the
-   assertion mechanism exists but no variable is required yet, by design. See
-   `src/lib/env/registry.ts`.
+2. `cp .env.example .env.local` and fill in what you have. The Supabase URL, the publishable key and
+   the site URL are required, and the server refuses to start without them, naming each one. Upstash
+   and Sentry are optional, and `/api/version` reports whether they are configured. Point local
+   development at the **preview** Supabase project, never production. See `src/lib/env/registry.ts`.
 3. `npm run dev`
 
 ## What this will not do

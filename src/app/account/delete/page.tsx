@@ -8,10 +8,10 @@
  */
 
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 
-import { currentSession } from '@/features/auth/session';
+import { DATA_DELETION_POLICY } from '@/features/legal/policies';
 
+import { requireVerifiedSession } from '../../gates';
 import { deleteAccountAction } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -29,10 +29,8 @@ export default async function DeleteAccountPage({
 }) {
   const { outcome, retry } = await searchParams;
 
-  const session = await currentSession();
-  if (session.state === 'anonymous') redirect('/login?next=/account/delete');
-  if (session.state === 'unverified') redirect('/verify-email?state=unconfirmed');
-  if (session.state === 'deleted') redirect('/login?outcome=account_deleted');
+  // The same gate as ./layout.tsx, which makes a refusal a real 307 (../../gates.ts).
+  await requireVerifiedSession('/account/delete');
 
   const notice =
     outcome === 'rate_limited'
@@ -55,7 +53,11 @@ export default async function DeleteAccountPage({
           support contact, because none exists. See docs/DECISIONS.md.
         */}
         <p className="text-sm text-neutral-600">
-          Your data is kept for at least 30 days in case this was a mistake.
+          Your data is kept for at least 30 days in case this was a mistake. See the{' '}
+          <Link href={DATA_DELETION_POLICY.path} className="underline underline-offset-2">
+            {DATA_DELETION_POLICY.title}
+          </Link>
+          .
         </p>
       </header>
 

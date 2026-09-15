@@ -491,3 +491,60 @@ experimental, and its own guide lists "Cannot handle dynamically generated scrip
 **The line that does not move.** No production policy with `'unsafe-inline'` or `'unsafe-eval'` for
 scripts. Inline `style="…"` attributes in server-rendered markup are blocked too, so components use
 classes.
+
+---
+
+## Consent is a versioned ledger, recorded at signup and required before the portal            (2026-09-15)
+
+**Decision.** Acceptance of the Terms of Service and Privacy Policy is recorded in
+`public.policy_acceptances`: one append-only row per account, document and version. The signup form
+requires a checkbox, and a trigger on `auth.users` records the versions the person was shown when the
+account is created. Any account without a row for the CURRENT version of both documents is sent to
+`/accept-terms` before the portal. That covers accounts created before Stage 11, accounts created
+through the Auth API rather than our form, and every account after a version change. The owner chose
+this over "signup checkbox only".
+
+**Why.** A flag says someone agreed. A ledger says what they agreed to and when, and survives the next
+version. A version change must ask everyone again, or the record claims agreement to text nobody saw.
+Placeholder versions end in `-placeholder`, so accepting a placeholder is never mistaken for accepting
+reviewed text.
+
+**How the pieces are held.** The current versions live in `src/features/legal/policies.ts`, beside the
+pages they version, so text and version change in one commit. The database checks only shape. The
+signup trigger fails open, like the audit triggers, because an error there would stop every signup;
+the acceptance page is the backstop. `accept_policies()` enforces a live session, a verified address
+and an active account itself, because it is reachable directly through the Data API. The ledger has no
+foreign key, like `audit_log`: a purge deletes the auth user, and a cascade would be refused by the
+append-only triggers.
+
+**Where it is enforced, and where not.** A route gate (`src/app/gates.ts`), not an RLS condition.
+Phase 1's portal holds only the account's own profile, and consent here gates using the product, not
+reading one's own data. Revisit when Phase 2 processes data that needs consent: that check belongs in
+the database. `/account/delete` is deliberately NOT gated on consent. Someone who refuses new terms
+must still be able to leave.
+
+**Rejected.** Recording consent only at signup (existing accounts and future versions would have no
+record, and nothing would ask). Writing acceptance from the signup Server Action (there is no session
+at that moment, so it would need a key that bypasses RLS). A boolean on `profiles` (no history, and a
+version change would overwrite the evidence).
+
+**The line that does not move.** The ledger is never updated or deleted, and no version is accepted on
+anyone's behalf.
+
+---
+
+## The public face is a placeholder name and says nothing about the product            (2026-09-15)
+
+**Decision.** Public pages call the site `alsayeed.ca` (`src/app/site.ts`), not the repository name.
+The landing page and `llms.txt` offer accounts only: sign up, sign in, and the policies. They say
+nothing about what the product will be. Both are the owner's choices.
+
+**Why.** The repository name contains another company's trademark, and search engines and AI crawlers
+index whatever is published. The product does not exist yet, and BUILD-PLAN.md forbids inventing it.
+A landing page is not an exception. `src/app/public-face.test.ts` fails if the name, description or
+`llms.txt` mention the planned product or the job site.
+
+**Rejected.** Keeping `IndeedAutoWeb` publicly. Describing the planned Phase 2 product, whose wording a
+lawyer should see first, because the job site's own terms restrict automated applications.
+
+**The line that does not move.** Nothing public claims a feature that does not exist.

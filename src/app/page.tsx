@@ -1,15 +1,58 @@
-// STUB (Stage 11): replaced by the landing page.
-//
-// A route must exist for `next build` to succeed. Registering it as a known stub now is
-// what makes prohibition P8 ("never leave a stub you replaced") enforceable later: when
-// Stage 11 lands the real landing page, this file is deleted in the same commit.
+/**
+ * The landing page. BUILD-PLAN.md Stage 11. Replaces the Stage 1 placeholder (P8).
+ *
+ * Accounts only, by the owner's decision: it offers signing up and signing in, and says nothing
+ * about what the product will be, because there is no product yet (see ./site.ts).
+ *
+ * It reads the session only to avoid offering "Create an account" to someone already signed in.
+ * That is a convenience, not access control: every destination checks for itself.
+ */
 
-export default function Home() {
+import Link from 'next/link';
+
+import { currentSession } from '@/features/auth/session';
+
+import { SITE_DESCRIPTION, SITE_NAME } from './site';
+import { SiteFooter } from './site-footer';
+
+export default async function HomePage() {
+  const session = await currentSession();
+  const signedIn = session.state === 'verified';
+
   return (
-    <main className="flex min-h-screen items-center justify-center">
-      <p className="text-sm text-neutral-500">
-        Placeholder. The landing page is built last, in Stage 11.
-      </p>
+    <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-8 p-8">
+      <header className="flex flex-col gap-2">
+        <h1 className="text-2xl font-semibold">{SITE_NAME}</h1>
+        <p className="text-sm text-neutral-600">{SITE_DESCRIPTION}</p>
+      </header>
+
+      <nav aria-label="Account" className="flex flex-col gap-3">
+        {signedIn ? (
+          <Link
+            href="/portal"
+            className="rounded bg-neutral-900 px-4 py-2 text-center text-sm text-white"
+          >
+            Go to your portal
+          </Link>
+        ) : (
+          <>
+            <Link
+              href="/signup"
+              className="rounded bg-neutral-900 px-4 py-2 text-center text-sm text-white"
+            >
+              Create an account
+            </Link>
+            <Link
+              href="/login"
+              className="rounded border border-neutral-300 px-4 py-2 text-center text-sm"
+            >
+              Sign in
+            </Link>
+          </>
+        )}
+      </nav>
+
+      <SiteFooter />
     </main>
   );
 }

@@ -3,10 +3,11 @@ import { connection } from 'next/server';
 
 import './globals.css';
 
+import { SITE_DESCRIPTION, SITE_NAME } from './site';
+
 export const metadata: Metadata = {
-  // STUB (Stage 11): real title and description arrive with the landing page.
-  title: 'IndeedAutoWeb',
-  description: 'Account layer. Phase 1.',
+  title: { default: SITE_NAME, template: `%s · ${SITE_NAME}` },
+  description: SITE_DESCRIPTION,
 };
 
 export default async function RootLayout({ children }: LayoutProps<'/'>) {

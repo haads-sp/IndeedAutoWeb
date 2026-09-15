@@ -117,6 +117,7 @@ test.describe('anonymous access', () => {
     // first — the point is to prove the SERVER rejects it, not the browser.
     await page.getByLabel('Password').evaluate((el: HTMLInputElement) => el.removeAttribute('minlength'));
     await page.getByLabel('Password').fill('elevenchars');
+    await page.getByRole('checkbox', { name: /I agree to the/ }).check();
     await page.getByRole('button', { name: 'Create account' }).click();
 
     await expect(page).toHaveURL(/outcome=password_rejected/);
@@ -130,11 +131,38 @@ test.describe('anonymous access', () => {
     await page.getByLabel('Email').fill('someone@alsayeed.ca');
     // Long enough to pass the length rule, and in every breach corpus there is.
     await page.getByLabel('Password').fill('passwordpassword');
+    await page.getByRole('checkbox', { name: /I agree to the/ }).check();
     await page.getByRole('button', { name: 'Create account' }).click();
 
     await expect(page).toHaveURL(/outcome=password_rejected/);
     await expect(page.getByText(/known data breach/i)).toBeVisible();
-  });});
+  });
+
+  test('signup is refused without agreeing to the policies, even with the browser check removed', async ({
+    page,
+  }) => {
+    // Stage 11. Consent is checked before anything else, so this request spends no rate-limit
+    // attempt, makes no breach lookup and never reaches Supabase.
+    await page.goto('/signup');
+    await page.waitForLoadState('networkidle');
+    await page.getByLabel('Email').fill('someone@alsayeed.ca');
+    await page.getByLabel('Password').fill('a-perfectly-fine-passphrase');
+    await page
+      .getByRole('checkbox', { name: /I agree to the/ })
+      .evaluate((el: HTMLInputElement) => el.removeAttribute('required'));
+    await page.getByRole('button', { name: 'Create account' }).click();
+
+    await expect(page).toHaveURL(/outcome=policies_not_accepted/);
+    await expect(page.getByText(/need to agree to the Terms of Service and the Privacy Policy/)).toBeVisible();
+  });
+
+  test('the signup form links to both policies it asks you to accept', async ({ page }) => {
+    await page.goto('/signup');
+    const consent = page.getByText(/I agree to the/);
+    await expect(consent.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms');
+    await expect(consent.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy');
+  });
+});
 
 test.describe('password reset (anonymous)', () => {
   test('/login links to the reset flow', async ({ page }) => {

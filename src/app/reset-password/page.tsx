@@ -10,12 +10,9 @@
  * Action is an endpoint that can be called without ever rendering this page.
  */
 
-import { redirect } from 'next/navigation';
-
 import { MIN_PASSWORD_LENGTH } from '@/features/auth/password';
-import { hasFreshRecovery } from '@/features/auth/password-reset';
-import { createClient } from '@/lib/supabase/server';
 
+import { requireFreshRecovery } from '../gates';
 import { completeResetAction } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -27,13 +24,8 @@ export default async function ResetPasswordPage({
 }) {
   const { outcome, detail } = await searchParams;
 
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
-  const claims = data?.claims;
-
-  if (!claims?.sub || !hasFreshRecovery(claims.amr)) {
-    redirect('/forgot-password?outcome=link_expired');
-  }
+  // The same gate as ./layout.tsx, which makes a refusal a real 307 (../gates.ts).
+  await requireFreshRecovery();
 
   const notice =
     outcome === 'mismatch'
