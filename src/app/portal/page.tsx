@@ -147,7 +147,12 @@ export default async function PortalPage({
         <p className="text-xs text-neutral-500">
           Closes your account and signs you out everywhere.
         </p>
-        <Link href="/account/delete" className="text-sm text-red-700 underline underline-offset-2">
+        {/* prefetch={false}: prefetching a gated route runs its gate. See ../gates.ts. */}
+        <Link
+          href="/account/delete"
+          prefetch={false}
+          className="text-sm text-red-700 underline underline-offset-2"
+        >
           Delete my account
         </Link>
       </section>

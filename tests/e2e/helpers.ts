@@ -16,22 +16,30 @@ export async function signIn(page: Page) {
   await page.getByLabel('Password').fill(PASSWORD!);
   await page.getByRole('button', { name: 'Sign in' }).click();
 
-  // Longer than the 5s default. Sign-in makes three network round trips — the Server
-  // Action, Supabase's token endpoint, then /portal's getUser() and profile read — and a
-  // cold CI runner can take longer than the default on the first one. The other candidate
-  // cause of row 4, so it is addressed too rather than guessed between.
-  await expect(page).toHaveURL(/\/(portal|accept-terms)/, { timeout: 15_000 });
+  // Wait for the page sign-in LANDS on, never for a URL. docs/ISSUES.md row 9: the router passes
+  // through /portal before the portal's gate redirects to /accept-terms, so a URL check saw /portal,
+  // concluded nothing needed accepting, and returned while the browser was still on its way to
+  // /accept-terms. (A regex like /\/portal/ also matches /accept-terms?next=/portal.) Each of these
+  // headings is rendered only by the page it names, so seeing one means the navigation is over.
+  //
+  // Longer than the 5s default: sign-in is several network round trips, and a cold CI runner can
+  // take longer than the default on the first one (docs/ISSUES.md row 4).
+  const portal = page.getByRole('heading', { name: 'Portal', exact: true });
+  const acceptance = page.getByRole('heading', { name: 'Before you continue', exact: true });
+  await expect(portal.or(acceptance)).toBeVisible({ timeout: 15_000 });
 
   // Stage 11. An account that has not accepted the CURRENT policy versions is stopped at
-  // /accept-terms. The E2E account meets it once, after the first run with a new version, and
-  // accepts as a person would. Acceptance is recorded in the preview database, so later runs go
-  // straight to /portal. tests/e2e/public.spec.ts asserts the record is then shown.
-  if (new URL(page.url()).pathname === '/accept-terms') {
+  // /accept-terms. The E2E account meets it once per new version, and accepts as a person would.
+  // Acceptance is recorded in the preview database, so later runs go straight to /portal.
+  // tests/e2e/public.spec.ts asserts the record is then shown.
+  if (await acceptance.isVisible()) {
     await page.waitForLoadState('networkidle');
     await page.getByRole('checkbox', { name: /I have read and agree/ }).check();
     await page.getByRole('button', { name: 'Agree and continue' }).click();
-    await expect(page).toHaveURL(/\/portal/, { timeout: 15_000 });
+    await expect(portal).toBeVisible({ timeout: 15_000 });
   }
+
+  await expect(page).toHaveURL((url) => url.pathname === '/portal');
 }
 
 type CspWindow = Window & { __cspViolations?: string[] };

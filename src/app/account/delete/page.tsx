@@ -92,7 +92,8 @@ export default async function DeleteAccountPage({
         </button>
       </form>
 
-      <Link href="/portal" className="text-sm underline underline-offset-2">
+      {/* prefetch={false}: prefetching a gated route runs its gate. See ../../gates.ts. */}
+      <Link href="/portal" prefetch={false} className="text-sm underline underline-offset-2">
         Keep my account
       </Link>
     </main>

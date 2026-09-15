@@ -109,10 +109,38 @@ test.describe('consent, signed in', () => {
     }
   });
 
+  /**
+   * docs/ISSUES.md row 9. A prefetch renders the target's layout, which for a gated route runs the
+   * gate: Supabase round trips for a page nobody opened, cancelled by the next navigation, and
+   * reported to Sentry as "The destination stream closed early". Links to gated routes opt out.
+   */
+  test('signed-in pages never prefetch a gated route', async ({ page }) => {
+    const GATED = ['/portal', '/account/delete', '/accept-terms', '/reset-password'];
+    const prefetched: string[] = [];
+    page.on('request', async (request) => {
+      if (await request.headerValue('next-router-prefetch')) {
+        prefetched.push(new URL(request.url()).pathname);
+      }
+    });
+
+    await signIn(page);
+    await page.waitForLoadState('networkidle');
+    await page.goto('/account/delete');
+    await page.waitForLoadState('networkidle');
+
+    // The control: these pages DO prefetch (their policy links), so an empty result below means the
+    // gated links opted out, not that the detector saw nothing.
+    const POLICIES = ['/terms', '/privacy', '/data-deletion'];
+    expect(prefetched.some((path) => POLICIES.includes(path)), 'the detector saw policy prefetches').toBe(true);
+    expect(prefetched.filter((path) => GATED.includes(path))).toEqual([]);
+  });
+
   test('an account that has accepted the current versions is not asked again', async ({ page }) => {
     await signIn(page);
 
     await page.goto('/accept-terms?next=/portal');
-    await expect(page).toHaveURL(/\/portal$/);
+    // A pathname check, not a regex on the URL: /\/portal$/ also matches /accept-terms?next=/portal.
+    await expect(page.getByRole('heading', { name: 'Portal', exact: true })).toBeVisible();
+    await expect(page).toHaveURL((url) => url.pathname === '/portal');
   });
 });

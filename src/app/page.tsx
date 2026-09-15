@@ -28,8 +28,10 @@ export default async function HomePage() {
 
       <nav aria-label="Account" className="flex flex-col gap-3">
         {signedIn ? (
+          // prefetch={false}: prefetching a gated route runs its gate. See ./gates.ts.
           <Link
             href="/portal"
+            prefetch={false}
             className="rounded bg-neutral-900 px-4 py-2 text-center text-sm text-white"
           >
             Go to your portal

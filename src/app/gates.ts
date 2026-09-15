@@ -16,6 +16,13 @@ import 'server-only';
  *
  * Neither is the security boundary (P2). The data behind these routes is protected by RLS.
  *
+ * LINKS TO A GATED ROUTE USE prefetch={false}. A prefetch renders the route's layout, so it runs
+ * the gate: three Supabase round trips, in the background, for a page the person may never open.
+ * Worse, the next navigation cancels it mid-stream, and Next.js reports every cancellation as
+ * "The destination stream closed early", through onRequestError, to Sentry. Measured in CI: 39
+ * renders of /account/delete per E2E run with prefetch, 9 without, and 5 errors down to 0
+ * (docs/ISSUES.md row 9).
+ *
  * Rendering only. Server Actions call currentSession() directly: an answer cached for the duration
  * of an action that signs someone out would be stale by its end.
  */

@@ -714,3 +714,28 @@ layout, so a redirect thrown in the layout happens before anything is sent. Afte
 with `maxRedirects: 0`, which is the only way a test sees it.
 
 **Rule:** any route that both redirects and has a `loading.tsx` must make that redirect in its layout.
+
+---
+
+## Prefetching a route runs its layout, and a cancelled prefetch is reported as a server error            (2026-09-15, verified here)
+
+A `<Link>` in the viewport is prefetched in production. For a dynamic route with a `loading.tsx`, that
+prefetch renders the route's layouts down to the loading boundary, so a gate in `layout.tsx` runs, with
+its database round trips, for every page view that shows the link. When the person, or a test, then
+navigates elsewhere, the browser cancels the prefetch mid-stream. React aborts the render with
+"The destination stream closed early." (the `close` handler on its pipe destination). Next.js logs it
+with a digest **and passes it to `onRequestError`**, which is where Sentry captures errors.
+
+Established on a throwaway branch with a log line in `onRequestError`. All five occurrences in one E2E
+run were `GET /account/delete`, `RSC: 1`, `Next-Router-Prefetch: 1`, `renderSource:
+react-server-components-payload`. With `prefetch={false}` on links to gated routes, the next run had
+zero, and `/account/delete` renders fell from 39 to 9.
+
+Two traps found on the way:
+- **`src/proxy.ts` cannot see these headers.** For the very request `onRequestError` reported with
+  `rsc: "1", prefetch: "1"` (same correlation id), the proxy logged `rsc: null, prefetch: null`. Next
+  strips its internal RSC headers before the proxy runs, so counting prefetches in the proxy counts
+  nothing.
+- **Cancelling a request is not enough to reproduce it.** Aborting a request while a layout was still
+  awaiting logged nothing: React only raises the error once it has started streaming to the
+  destination.

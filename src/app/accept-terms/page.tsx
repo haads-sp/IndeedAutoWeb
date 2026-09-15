@@ -91,7 +91,12 @@ export default async function AcceptTermsPage({ searchParams }: PageProps<'/acce
               Sign out
             </button>
           </form>
-          <Link href="/account/delete" className="text-red-700 underline underline-offset-2">
+          {/* prefetch={false}: prefetching a gated route runs its gate. See ../gates.ts. */}
+          <Link
+            href="/account/delete"
+            prefetch={false}
+            className="text-red-700 underline underline-offset-2"
+          >
             Delete my account
           </Link>
         </div>

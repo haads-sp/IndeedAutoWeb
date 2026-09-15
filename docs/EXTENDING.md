@@ -146,6 +146,9 @@ renders per request and Next.js stamps the request's nonce on its scripts. What 
   first, so the redirect becomes a 200 with a meta refresh (docs/ISSUES.md row 8). Make the redirect
   in the route's `layout.tsx` with a gate from `src/app/gates.ts`, call the same gate in the page,
   and add the path to the "real redirect" list in `tests/e2e/public.spec.ts`.
+- A `<Link>` to a gated route without `prefetch={false}`. The prefetch runs the gate's database calls
+  for a page nobody opened, and each cancelled prefetch reaches Sentry as "The destination stream
+  closed early" (docs/ISSUES.md row 9). Add the route to `GATED` in `tests/e2e/public.spec.ts`.
 
 **Proving it:** add the path to the list in `tests/e2e/security.spec.ts` ("pages load and hydrate
 with no violations"). That test fails on a blocked script, and checks that the page's own scripts

@@ -56,10 +56,18 @@ jobs:
           E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
         run: npm run test:e2e
 
-      - name: Upload report on failure
+      - name: Upload screenshots on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
-          path: playwright-report/
+          name: playwright-screenshots
+          # Screenshots of failed tests. This used to upload playwright-report/, which the CI
+          # reporters (github, list) never write, so it uploaded nothing, every time, with only a
+          # warning (docs/ISSUES.md row 9).
+          #
+          # NOT all of test-results/: a trace records every fill() value, including the E2E
+          # account's password, and GitHub masks secrets in logs, not inside artifact files. A
+          # screenshot can show the account's email address; it never shows the password.
+          path: test-results/**/*.png
+          if-no-files-found: warn
           retention-days: 7
