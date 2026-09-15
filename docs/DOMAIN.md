@@ -585,6 +585,15 @@ an email address and JWT in the error message. The captured event carried `reque
 `{"method":"GET","url":"…/debug/sentry-check"}`, the message as `ga***@example.com`, `[jwt]`,
 `token_hash=[redacted]`, and none of the other values anywhere in any envelope.
 
+**Then confirmed on production** (the Stage 10 gate, through `/debug/sentry-check`, a temporary route
+that threw on purpose and was deleted afterwards). A signed-in browser requested it with a fake
+`?token_hash=` and `?email=`. The page showed only "Something went wrong" and `Reference: 3711135420`.
+The Sentry issue carried tag `digest: 3711135420` and a `correlation_id`. Its message was scrubbed,
+its request URL ended at the path with no cookies or headers, it had no user and no IP, and
+`contexts.nextjs.request_path` had no query string. The stack trace was reported as resolved to
+source, so the source map upload worked. An `auth.sign_in signed_in` entry reached Sentry Logs, with
+no IP. Checked in the Sentry UI by the owner.
+
 ---
 
 ## Sentry's `captureRequestError` puts the query string in `contexts.nextjs.request_path`            (2026-09-14, verified here)
@@ -665,9 +674,12 @@ error state and re-renders "without re-fetching", and the guide says "in most ca
 `retry()` instead". For an error thrown by a Server Component, `reset()` re-renders the same failed
 result. Training data and older guides use `reset`.
 
-Also observed: for the same thrown error, the full-page request and the RSC request made by
-`retry()` get **different digests** (`2513825341` and `2518623826`). A person quoting a reference
-after pressing "Try again" may quote the second.
+Also observed, and not consistent between environments. Under `next start`, the full-page request
+and the RSC request made by `retry()` got **different digests** for the same thrown error
+(`2513825341`, then `2518623826`). On production (Vercel) the page still showed the same reference,
+`3711135420`, after "Try again" was pressed. So do not assume a reference changes, or stays the
+same, after a retry. Search Sentry by the `digest` tag the person quotes; that event's
+`correlation_id` then finds the request's log lines.
 
 ---
 
