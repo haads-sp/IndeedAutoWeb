@@ -311,13 +311,15 @@ async function main() {
   // for B. It also guarantees B's CONTROL below has rows, so A's empty result is a denial rather
   // than an empty table.
   const versions = currentPolicyVersions();
+  const acceptBody = JSON.stringify({ p_terms_version: versions.terms, p_privacy_version: versions.privacy });
   const accept = await asUser(b.token, '/rest/v1/rpc/accept_policies', {
     method: 'POST',
-    body: JSON.stringify({ p_terms_version: versions.terms, p_privacy_version: versions.privacy }),
+    body: acceptBody,
   });
   report(
     'user B accepts the current policies through accept_policies() (Stage 11)',
-    `POST /rest/v1/rpc/accept_policies ${JSON.stringify(versions)}   (as B)`,
+    // The body actually sent, not a summary of it: the gate asks for the query and the result.
+    `POST /rest/v1/rpc/accept_policies ${acceptBody}   (as B)`,
     accept,
     '200 with the number of rows newly recorded: 2 the first time, 0 after',
     accept.status === 200 && /^[0-9]+$/.test(accept.body.trim()),

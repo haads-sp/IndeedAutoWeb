@@ -33,7 +33,7 @@ prohibition P2.
 | Landing, legal pages | Yes (Stage 11): `/`, `/terms`, `/privacy`, `/data-deletion`. The policy text is a placeholder marked for review by a lawyer. | Public by design; no data | E2E `public.spec.ts` |
 | Signup, login, reset | Yes (reset: Stage 7). Signup requires agreeing to the Terms and Privacy Policy (Stage 11), checked on the server before anything else. | Routes; no data access | E2E suite; Stage 7 gate; `policies_not_accepted` spec |
 | Email links (`/auth/confirm`) | Yes (two-step since Stage 10) | Opening the link changes nothing. Only the button's Server Action calls `verifyOtp`, and Next.js refuses that action from another origin. Every field is re-validated server-side. | E2E: the link waits for a button, the tampered form, a cross-site action refused (`security.spec.ts`). **Production, 2026-09-15:** the owner completed a real password reset through the button page and signed in with the new password. |
-| **Own policy acceptances** (Stage 11) | **Yes** | **RLS** `policy_acceptances_select_own` (own rows, verified + live session) + GRANT `select` only; append-only **triggers** for every role; written only by the signup trigger and `accept_policies()`, which enforces a live session, a verified address and an active account | `rls-check.mjs` Stage 11 section: B reads its own, A reading B's gets `[]`, direct insert, update and delete refused |
+| **Own policy acceptances** (Stage 11) | **Yes** | **RLS** `policy_acceptances_select_own` (own rows, verified + live session) + GRANT `select` only; append-only **triggers** for every role; written only by the signup trigger and `accept_policies()`, which enforces a live session, a verified address and an active account | **Stage 11 gate, below**: production, two real users, 19/19 |
 | Verification pending page | Yes | Route | Stage 5 browser gate |
 | `/portal` | Yes. Since Stage 11 it also requires the current policy versions to be accepted. | Route gate in `layout.tsx` (a real 307, docs/ISSUES.md row 8) **plus** RLS on the data it reads | Stage 5 browser gate; E2E, including the raw 307 |
 | **Own profile row** | **Yes** | **RLS** `profiles_select_own`, `profiles_update_own` (each requiring a live session and `deleted_at is null`) + GRANT `select` and column-level `update (display_name)` to `authenticated` only | **Stage 6 gate, below** |
@@ -80,6 +80,44 @@ The CONTROL is what makes `200 []` meaningful: A can see A's row, so B's empty r
 rather than an empty table. The two `403`s show the **GRANT** layer refusing before RLS is consulted
 — before the lockdown migration the same request returned `204` and was protected only by the
 absence of a delete policy.
+
+### Stage 11 gate: run 2026-09-15 against production, two real users
+
+First, in a browser, user A signed in and was stopped at `/accept-terms`. The policy links showed the
+placeholder TODO. A accepted, and the portal read the acceptance back with version and date. After
+signing out and in again, A went straight to the portal.
+
+Then `npm run check:rls`, which now covers the ledger too. The Stage 11 section:
+
+```
+PASS  user B accepts the current policies through accept_policies()
+  response: 200 2                                                    <- two rows newly recorded
+
+PASS  CONTROL - user B reads their own acceptances
+  response: 200 [{"document":"terms","version":"2026-09-15-placeholder","source":"accept_page"},
+                 {"document":"privacy","version":"2026-09-15-placeholder","source":"accept_page"}]
+
+PASS  user A reads user B's acceptances by user id
+  response: 200 []
+
+PASS  user A lists the entire ledger
+  response: 200 [{"user_id":"8a0d1e65-…"},{"user_id":"8a0d1e65-…"}]   <- only A's own two rows
+
+PASS  user B inserts an acceptance directly, in user A's name
+  response: 403 "permission denied for table policy_acceptances"
+
+PASS  user B rewrites their own acceptance
+  response: 403 "permission denied for table policy_acceptances"
+
+PASS  user B deletes their own acceptance
+  response: 403 "permission denied for table policy_acceptances"
+
+ALL 19 CHECKS PASSED
+```
+
+B's CONTROL is what makes A's `[]` meaningful: B's rows exist, and A still cannot see them. The three
+`403`s come from the GRANT layer (authenticated has SELECT only); the append-only triggers would refuse
+an UPDATE or DELETE even from a role that bypasses RLS.
 
 ### The "signed in, unverified" column
 
