@@ -18,6 +18,30 @@ policy acceptance recorded per version. The live site is https://www.alsayeed.ca
 placeholders awaiting review by a lawyer. There is still no product. `docs/BUILD-PLAN.md` is the
 controlling document; `docs/ISSUES.md` records what went wrong along the way.
 
+### Still open
+
+As of 2026-09-15. The owner deferred the first group to a later date; none of it is in progress.
+
+**Before real users:**
+- Policy text written or reviewed by a lawyer, published with a version bump. Recipe: "Publishing
+  reviewed policy text" in `docs/EXTENDING.md`.
+- The purge scheduled, or the Data Deletion Policy describing the manual purge. See "Deletion grace
+  period: 30 days, purged manually" in `docs/DECISIONS.md`.
+- A real public name. The placeholder `alsayeed.ca` is one line in `src/app/site.ts`.
+
+**Before Phase 2:**
+- A position on the job site's terms, which restrict automated applications. See the notes in
+  `src/app/terms/page.tsx`.
+- Consent enforced in the database once Phase 2 processes data that needs it. It is a route gate today
+  ("Consent is a versioned ledger" in `docs/DECISIONS.md`).
+
+**Known gaps:**
+- Errors in the browser are not reported: there is no browser Sentry, by decision (`docs/DECISIONS.md`).
+- With JavaScript disabled, a failing page shows no message (`docs/DOMAIN.md`).
+- The preview Supabase project has no custom SMTP.
+- `docs/ISSUES.md` rows 4 and 9 are still `FIXED?`. Row 9's sign-in fix is first exercised by the next
+  policy version bump.
+
 ## Commands
 
 | Command | What it does |
